@@ -1,0 +1,59 @@
+CONSTRUCTION DU .EXE AGENT (Windows)
+====================================
+
+L'agent s'exécute SOUS WINDOWS uniquement (il lit le système via PowerShell).
+Le développement se fait dans WSL, mais le test et le build se font sous
+Windows natif.
+
+TEST EN MODE DEV (sans build)
+-----------------------------
+Sur le poste Windows, dans PowerShell, depuis le dossier agent\ :
+
+   python agent_gui.py
+
+Au lancement, l'agent tente de s'élever en administrateur (fenêtre UAC).
+Accepter pour un audit complet. Refuser -> mode standard (certains contrôles
+seront "indéterminés", c'est normal et signalé dans l'interface).
+
+BUILD DU .EXE AVEC ÉLÉVATION AUTOMATIQUE
+----------------------------------------
+PyInstaller peut intégrer un manifeste qui demande l'élévation au lancement
+(plus propre que l'auto-relance par code). Deux approches :
+
+  Approche simple (auto-relance gérée par le code elevation.py) :
+
+     pip install pyinstaller
+     pyinstaller --onefile --windowed --name "AuditAgent" agent_gui.py
+
+     -> au lancement, elevation.py déclenche l'UAC lui-même.
+
+  Approche manifeste (l'exe demande l'élévation dès le lancement) :
+
+     pyinstaller --onefile --windowed --name "AuditAgent" ^
+         --uac-admin agent_gui.py
+
+     L'option --uac-admin ajoute "requireAdministrator" au manifeste :
+     Windows demande l'élévation AVANT même de lancer l'exe. C'est la méthode
+     recommandée pour un agent d'audit (comportement le plus prévisible).
+
+L'exe se trouve dans  agent\dist\AuditAgent.exe
+
+REMARQUES IMPORTANTES
+---------------------
+- PowerShell est présent nativement sur tout Windows -> aucune dépendance à
+  installer chez le client.
+- Avec --uac-admin, double-cliquer sur l'exe déclenche toujours l'UAC. Si
+  l'utilisateur n'a pas de droits admin (ni mot de passe admin), il peut
+  annuler : l'agent NE se lance pas dans ce cas (manifeste requireAdministrator).
+  Si tu veux que l'agent puisse AUSSI tourner en mode dégradé sans admin,
+  utilise l'approche simple (sans --uac-admin) : elevation.py tente l'UAC mais
+  retombe en mode standard si refusé.
+- Certains antivirus peuvent flaguer un exe PyInstaller non signé. Pour un
+  usage interne c'est sans gravité ; pour distribution large, envisager une
+  signature de code.
+
+RECOMMANDATION
+--------------
+Pour ton usage (intervention chez le client, comptes variés) :
+  -> build SANS --uac-admin (approche simple), pour garder le fallback mode
+     dégradé si jamais tu tombes sur une session sans droits admin.
