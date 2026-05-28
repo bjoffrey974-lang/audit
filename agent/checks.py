@@ -101,15 +101,53 @@ def chk_antivirus_present(is_admin=False):
 
 
 def chk_antivirus_ajour(is_admin=False):
-    out, ok = ps("(Get-MpComputerStatus).AntivirusSignatureAge")
-    if ok and out.strip().isdigit():
-        age = int(out.strip())
+    # 1) Lit le productState de tous les AV inscrits dans Security Center.
+    #    productState est un bitfield : bits 0x10/0x11 indiquent "signatures à jour"
+    #    pour les AV tiers (Bitdefender, McAfee, etc.).
+    out, ok = ps(
+        "Get-CimInstance -Namespace root/SecurityCenter2 -Class AntiVirusProduct "
+        "-ErrorAction SilentlyContinue | ForEach-Object "
+        "{ '{0}|{1:X6}' -f $_.displayName, $_.productState }")
+    if ok and out.strip():
+        # Parse les lignes "Nom|HEXSTATE"
+        actifs_ajour, actifs_obsoletes, inactifs = [], [], []
+        for line in out.splitlines():
+            line = line.strip()
+            if "|" not in line:
+                continue
+            nom, hex_state = line.rsplit("|", 1)
+            try:
+                state = int(hex_state, 16)
+            except ValueError:
+                continue
+            # Décodage productState : octet 1 = état AV, octet 2 = état signatures
+            av_actif = (state & 0x001000) != 0
+            sig_obsoletes = (state & 0x000010) != 0
+            if not av_actif:
+                inactifs.append(nom.strip())
+            elif sig_obsoletes:
+                actifs_obsoletes.append(nom.strip())
+            else:
+                actifs_ajour.append(nom.strip())
+        if actifs_ajour:
+            return _result("ok", "Signatures à jour : " + ", ".join(actifs_ajour))
+        if actifs_obsoletes:
+            return _result("critique",
+                           "Signatures obsolètes : " + ", ".join(actifs_obsoletes))
+        # Fallback Defender si rien d'utile via SC2
+    out2, ok2 = ps("(Get-MpComputerStatus).AntivirusSignatureAge")
+    if ok2 and out2.strip().isdigit():
+        age = int(out2.strip())
+        # 65535 = valeur sentinelle Windows quand Defender n'est pas l'AV actif
+        if age == 65535:
+            return _result("indetermine",
+                           "Signatures Defender non applicables (AV tiers actif)")
         if age <= 3:
             return _result("ok", f"Signatures de {age} jour(s)")
         if age <= 7:
             return _result("attention", f"Signatures de {age} jours")
         return _result("critique", f"Signatures anciennes ({age} jours)")
-    return _result("indetermine", "Âge des signatures non lisible (AV tiers ?)")
+    return _result("indetermine", "Âge des signatures non lisible")
 
 
 def chk_chiffrement_disque(is_admin=False):
@@ -179,10 +217,14 @@ def chk_os_supporte(is_admin=False):
 
 
 def chk_admins_limites(is_admin=False):
+    # 1) Méthode robuste : WMI via le SID du groupe Administrateurs (-544).
+    #    Insensible à la langue (FR/EN) et au bug Get-LocalGroupMember sur
+    #    les comptes Azure AD/Entra ID.
     out, ok = ps(
-        "(Get-LocalGroupMember -Group 'Administrateurs' -ErrorAction SilentlyContinue) "
-        ".Count; if(-not $?){ (Get-LocalGroupMember -Group 'Administrators').Count }")
-    # Récupère le premier nombre trouvé
+        "$g = Get-CimInstance Win32_Group -Filter \"SID='S-1-5-32-544'\"; "
+        "$ass = Get-CimInstance Win32_GroupUser | "
+        "Where-Object { $_.GroupComponent.Name -eq $g.Name }; "
+        "$ass.Count")
     m = re.search(r"\d+", out or "")
     if ok and m:
         n = int(m.group())
@@ -191,6 +233,38 @@ def chk_admins_limites(is_admin=False):
         if n <= 4:
             return _result("attention", f"{n} comptes administrateurs locaux")
         return _result("critique", f"{n} comptes administrateurs locaux (trop)")
+    # 2) Fallback : net localgroup (legacy mais toujours fiable).
+    #    On compte les lignes utiles entre la ligne "Membres" et la ligne de fin.
+    for groupe in ("Administrateurs", "Administrators"):
+        out, ok = ps(f"net localgroup {groupe} 2>$null")
+        if ok and out.strip():
+            lignes = out.splitlines()
+            # Repère la ligne contenant uniquement des tirets (≥10) après "Membres"
+            in_membres = False
+            membres = []
+            for l in lignes:
+                stripped = l.strip()
+                # Détecte un séparateur "------..." (au moins 10 tirets)
+                if re.fullmatch(r"-{10,}", stripped):
+                    if not in_membres:
+                        in_membres = True
+                        continue
+                    else:
+                        break  # 2e séparateur = fin de la liste
+                if in_membres and stripped:
+                    # Ignorer la ligne finale "La commande s'est terminée..."
+                    if "termin" in stripped.lower() or "completed" in stripped.lower():
+                        continue
+                    membres.append(stripped)
+            n = len(membres)
+            if n > 0:
+                if n <= 2:
+                    return _result("ok", f"{n} compte(s) administrateur local")
+                if n <= 4:
+                    return _result("attention",
+                                   f"{n} comptes administrateurs locaux")
+                return _result("critique",
+                               f"{n} comptes administrateurs locaux (trop)")
     return _result("indetermine", "Membres du groupe Administrateurs non lisibles")
 
 
