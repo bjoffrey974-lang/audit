@@ -76,6 +76,50 @@ def generate_svg_string(audit, vue="logique"):
                 f'font-size="10" fill="{stroke}">{_xml_escape(label)}</text>'
             )
 
+    # Relations d'hébergement (VM -> hyperviseur)
+    if vue == "physique":
+        for host in eqs:
+            if host.type != "hyperviseur":
+                continue
+            vms = [e for e in eqs if e.parent_id == host.id]
+            if not vms:
+                continue
+            members = [host] + vms
+            min_x = min((m.pos_x or 0) for m in members) - 16
+            min_y = min((m.pos_y or 0) for m in members) - 28
+            max_x = max((m.pos_x or 0) for m in members) + 120 + 16
+            max_y = max((m.pos_y or 0) for m in members) + 80 + 16
+            hv_color = EQUIP_VISUAL.get("hyperviseur", {}).get("color", "#0f5132")
+            label = (f"\U0001F4E6 {host.nom_hote or 'Hyperviseur'}"
+                     f"{(' — ' + host.modele) if host.modele else ''} "
+                     f"({len(vms)} VM)")
+            parts.append(
+                f'<rect x="{min_x}" y="{min_y}" width="{max_x - min_x}" '
+                f'height="{max_y - min_y}" rx="12" fill="{hv_color}" '
+                f'fill-opacity="0.05" stroke="{hv_color}" stroke-width="1.5" '
+                f'stroke-dasharray="6,4"/>'
+                f'<rect x="{min_x}" y="{min_y}" '
+                f'width="{min(len(label) * 6.2 + 16, max_x - min_x)}" height="18" '
+                f'rx="6" fill="{hv_color}"/>'
+                f'<text x="{min_x + 8}" y="{min_y + 13}" font-size="10" '
+                f'font-weight="bold" fill="white">{_xml_escape(label)}</text>'
+            )
+    else:
+        for e in eqs:
+            if e.parent_id and eq_by_id.get(e.parent_id):
+                h = eq_by_id[e.parent_id]
+                x1, y1 = (e.pos_x or 0) + 60, (e.pos_y or 0) + 40
+                x2, y2 = (h.pos_x or 0) + 60, (h.pos_y or 0) + 40
+                mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+                parts.append(
+                    f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+                    f'stroke="#adb5bd" stroke-width="1.5" stroke-dasharray="2,3"/>'
+                    f'<rect x="{mx-38}" y="{my-9}" width="76" height="13" rx="3" '
+                    f'fill="#fff" stroke="#adb5bd" stroke-width="0.5" opacity="0.9"/>'
+                    f'<text x="{mx}" y="{my+1}" text-anchor="middle" '
+                    f'font-size="8" fill="#6c757d">h&#233;berg&#233; par</text>'
+                )
+
     # Nœuds
     for e in eqs:
         vis = EQUIP_VISUAL.get(e.type, EQUIP_VISUAL["autre"])

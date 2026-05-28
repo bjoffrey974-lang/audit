@@ -51,6 +51,21 @@ window.SchemaApp = (function () {
     const eqById = Object.fromEntries(equipements.map(e => [e.id, e]));
     liaisons.forEach(l => drawLiaison(l, eqById));
 
+    // Relations d'hébergement (VM -> hyperviseur via parent_id)
+    if (vue === "physique") {
+      equipements.forEach(h => {
+        if (h.type !== "hyperviseur") return;
+        const vms = equipements.filter(e => e.parent_id === h.id);
+        if (vms.length) drawHostContainer(h, vms);
+      });
+    } else {
+      equipements.forEach(e => {
+        if (e.parent_id && eqById[e.parent_id]) {
+          drawHostLink(e, eqById[e.parent_id]);
+        }
+      });
+    }
+
     // Équipements
     equipements.forEach(e => drawNode(e));
 
@@ -114,6 +129,54 @@ window.SchemaApp = (function () {
       if (window.AppLogic) window.AppLogic.openEqModal(e.id);
     });
     svg.appendChild(g);
+  }
+
+  // Vue logique : lien pointillé gris "hébergé par" (VM -> hyperviseur)
+  function drawHostLink(vm, host) {
+    const x1 = (vm.pos_x || 0) + 60;
+    const y1 = (vm.pos_y || 0) + 40;
+    const x2 = (host.pos_x || 0) + 60;
+    const y2 = (host.pos_y || 0) + 40;
+    svg.appendChild(el("line", {
+      x1, y1, x2, y2,
+      stroke: "#adb5bd", "stroke-width": 1.5,
+      "stroke-dasharray": "2,3",
+      "data-host-link": vm.id,
+    }));
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    svg.appendChild(el("rect", {
+      x: mx - 38, y: my - 9, width: 76, height: 13, rx: 3,
+      fill: "white", stroke: "#adb5bd", "stroke-width": 0.5, opacity: 0.9,
+    }));
+    svg.appendChild(text(mx, my + 1, "hébergé par", {
+      "text-anchor": "middle", "font-size": "8", fill: "#6c757d",
+    }));
+  }
+
+  // Vue physique : cadre conteneur englobant l'hyperviseur et ses VM
+  function drawHostContainer(host, vms) {
+    const all = [host, ...vms];
+    const xs = all.map(e => e.pos_x || 0);
+    const ys = all.map(e => e.pos_y || 0);
+    const minX = Math.min(...xs) - 16;
+    const minY = Math.min(...ys) - 28;
+    const maxX = Math.max(...xs) + 120 + 16;
+    const maxY = Math.max(...ys) + 80 + 16;
+    const vis = (window.EQUIP_VISUAL || {}).hyperviseur || { color: "#0f5132" };
+    svg.appendChild(el("rect", {
+      x: minX, y: minY, width: maxX - minX, height: maxY - minY, rx: 12,
+      fill: vis.color, "fill-opacity": 0.05,
+      stroke: vis.color, "stroke-width": 1.5, "stroke-dasharray": "6,4",
+    }));
+    const label = `📦 ${host.nom_hote || "Hyperviseur"}${
+      host.modele ? " — " + host.modele : ""} (${vms.length} VM)`;
+    svg.appendChild(el("rect", {
+      x: minX, y: minY, width: Math.min(label.length * 6.2 + 16, maxX - minX),
+      height: 18, rx: 6, fill: vis.color,
+    }));
+    svg.appendChild(text(minX + 8, minY + 13, label, {
+      "font-size": "10", "font-weight": "bold", fill: "white",
+    }));
   }
 
   function drawLiaison(l, eqById) {

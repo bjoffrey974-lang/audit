@@ -170,7 +170,30 @@ window.AppLogic = (function () {
       if (el) el.value = eq[f] == null ? "" : eq[f];
     });
     refreshSiteSelect("m_eq_site_id", eq.site_id);
+    refreshParentSelect(eq);
+    toggleParentField(eq.type);
+    const typeSel = document.getElementById("m_eq_type");
+    typeSel.onchange = () => toggleParentField(typeSel.value);
     document.getElementById("modal_eq").hidden = false;
+  }
+
+  function toggleParentField(type) {
+    const wrap = document.getElementById("m_eq_parent_wrap");
+    if (wrap) wrap.style.display = type === "serveur_virtuel" ? "" : "none";
+  }
+
+  function refreshParentSelect(eq) {
+    const sel = document.getElementById("m_eq_parent_id");
+    if (!sel) return;
+    const eqs = window.SchemaApp ? window.SchemaApp.getEquipements() : [];
+    sel.innerHTML = '<option value="">— Aucun —</option>';
+    eqs.filter(e => e.type === "hyperviseur").forEach(h => {
+      const o = document.createElement("option");
+      o.value = h.id;
+      o.textContent = h.nom_hote || `Hyperviseur #${h.id}`;
+      if (eq.parent_id === h.id) o.selected = true;
+      sel.appendChild(o);
+    });
   }
   window.closeEqModal = function () {
     document.getElementById("modal_eq").hidden = true;
@@ -189,16 +212,36 @@ window.AppLogic = (function () {
       if (f === "site_id" || f === "nb_vm") v = v === "" ? null : parseInt(v, 10);
       payload[f] = v;
     });
+    const parentEl = document.getElementById("m_eq_parent_id");
+    payload.parent_id = (payload.type === "serveur_virtuel" && parentEl && parentEl.value)
+      ? parseInt(parentEl.value, 10) : null;
     fetch(`/api/equipement/${currentEqId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then(r => r.json()).then(eq => {
       if (window.SchemaApp) window.SchemaApp.updateEquipement(eq);
+      recomputeHostVmCounts();
       renderEqList();
       closeEqModal();
     });
   };
+
+  function recomputeHostVmCounts() {
+    const eqs = window.SchemaApp ? window.SchemaApp.getEquipements() : [];
+    eqs.filter(e => e.type === "hyperviseur").forEach(h => {
+      const count = eqs.filter(e => e.parent_id === h.id).length;
+      if (h.nb_vm !== count) {
+        fetch(`/api/equipement/${h.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nb_vm: count }),
+        }).then(r => r.json()).then(updated => {
+          if (window.SchemaApp) window.SchemaApp.updateEquipement(updated);
+        });
+      }
+    });
+  }
   window.deleteEquipement = function () {
     if (!currentEqId) return;
     deleteEq(currentEqId);
