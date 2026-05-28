@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Audit IT — Accueil{% endblock %}
+
+{% block content %}
+<div class="container">
+  <section>
+    <h1>Audits récents</h1>
+    {% if recent %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Client</th>
+            <th>Date</th>
+            <th>Responsable</th>
+            <th>Statut</th>
+            <th>Mise à jour</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in recent %}
+            <tr>
+              <td><strong>{{ a.client.nom }}</strong>
+                {% if a.client.groupe %}<br><small>{{ a.client.groupe }}</small>{% endif %}</td>
+              <td>{{ a.date_audit }}</td>
+              <td>{{ a.responsable or '-' }}</td>
+              <td>
+                <span class="badge badge-{{ a.statut }}">{{ a.statut }}</span>
+              </td>
+              <td><small>{{ a.updated_at.strftime('%d/%m/%Y %H:%M') }}</small></td>
+              <td>
+                <a href="{{ url_for('audit_edit', audit_id=a.id) }}"
+                   class="btn btn-sm btn-primary">Ouvrir</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Aucun audit pour le moment.
+        <a href="{{ url_for('nouveau_audit') }}">Créer le premier audit</a></p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Clients ({{ clients|length }})</h2>
+    {% if clients %}
+      <ul class="client-list">
+        {% for c in clients %}
+          <li>
+            <strong>{{ c.nom }}</strong>
+            {% if c.groupe %}<span class="muted">— {{ c.groupe }}</span>{% endif %}
+            <span class="muted">({{ c.audits|length }} audit{{ 's' if c.audits|length > 1 }})</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

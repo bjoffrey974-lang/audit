@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Nouvel audit{% endblock %}
+
+{% block content %}
+<div class="container container-narrow">
+  <h1>Nouvel audit</h1>
+  <form method="POST" class="form">
+    <label>
+      Client
+      <select name="client_id" id="client_select" required>
+        <option value="">— Sélectionner —</option>
+        {% for c in clients %}
+          <option value="{{ c.id }}">{{ c.nom }}
+            {% if c.groupe %}({{ c.groupe }}){% endif %}</option>
+        {% endfor %}
+        <option value="__new__">+ Créer un nouveau client</option>
+      </select>
+    </label>
+    <label id="nouveau_client_wrap" style="display:none">
+      Nom du nouveau client
+      <input type="text" name="nouveau_client_nom">
+    </label>
+    <label>
+      Responsable de l'audit
+      <input type="text" name="responsable" placeholder="Votre nom">
+    </label>
+    <label>
+      Interlocuteur commercial
+      <input type="text" name="interlocuteur_commercial">
+    </label>
+    <button type="submit" class="btn btn-primary">Démarrer l'audit</button>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">Annuler</a>
+  </form>
+</div>
+<script>
+document.getElementById('client_select').addEventListener('change', e => {
+  document.getElementById('nouveau_client_wrap').style.display =
+    e.target.value === '__new__' ? 'block' : 'none';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}{{ audit.client.nom }} — Audit{% endblock %}
+
+{% block content %}
+<div class="audit-layout" data-audit-id="{{ audit.id }}">
+
+  <!-- =================== COLONNE GAUCHE : FORMULAIRE =================== -->
+  <div class="audit-form">
+    <div class="audit-header">
+      <h1 id="hdr_client">{{ audit.client.nom }}</h1>
+      <div class="audit-meta">
+        <span>Audit du <strong>{{ audit.date_audit }}</strong></span>
+        <span id="save_indicator" class="save-indicator">●</span>
+      </div>
+      <div class="export-buttons">
+        <a href="{{ url_for('export_pdf', audit_id=audit.id) }}"
+           class="btn btn-sm btn-export">📄 PDF</a>
+        <a href="{{ url_for('export_excel', audit_id=audit.id) }}"
+           class="btn btn-sm btn-export">📊 Excel</a>
+        <a href="{{ url_for('export_svg', audit_id=audit.id) }}"
+           class="btn btn-sm btn-export">🖼 SVG</a>
+        <a href="{{ url_for('export_png', audit_id=audit.id) }}"
+           class="btn btn-sm btn-export">🖼 PNG</a>
+        <a href="{{ url_for('schema_view', audit_id=audit.id) }}"
+           target="_blank"
+           class="btn btn-sm btn-export">⛶ Schéma plein écran</a>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="contact">1. Contact</button>
+      <button class="tab" data-tab="sites">2. Sites & Internet</button>
+      <button class="tab" data-tab="equipements">3. Équipements</button>
+      <button class="tab" data-tab="liaisons">4. Liaisons</button>
+      <button class="tab" data-tab="serveurs">5. Serveurs / VM</button>
+      <button class="tab" data-tab="securite">6. Sécurité</button>
+      <button class="tab" data-tab="applications">7. Applications</button>
+      <button class="tab" data-tab="sauvegardes">8. Sauvegardes</button>
+      <button class="tab" data-tab="messagerie">9. Messagerie</button>
+      <button class="tab" data-tab="divers">10. Problèmes / Doc</button>
+    </nav>
+
+    <!-- ========== TAB Contact ========== -->
+    <section class="tab-panel active" data-panel="contact">
+      <h2>Identité du client</h2>
+      <div class="grid-2">
+        <label>Identité de l'entreprise
+          <input data-field="client.nom" value="{{ audit.client.nom or '' }}"></label>
+        <label>Groupe
+          <input data-field="client.groupe" value="{{ audit.client.groupe or '' }}"></label>
+        <label class="full">Adresse
+          <input data-field="client.adresse" value="{{ audit.client.adresse or '' }}"></label>
+        <label>Contact (nom)
+          <input data-field="client.contact_nom" value="{{ audit.client.contact_nom or '' }}"></label>
+        <label>Téléphone
+          <input data-field="client.contact_tel" value="{{ audit.client.contact_tel or '' }}"></label>
+        <label>Email
+          <input data-field="client.contact_email" value="{{ audit.client.contact_email or '' }}"></label>
+        <label>Horaires d'ouverture
+          <input data-field="client.horaires" value="{{ audit.client.horaires or '' }}"></label>
+        <label class="full">Type d'activité
+          <textarea data-field="client.activite" rows="2">{{ audit.client.activite or '' }}</textarea></label>
+      </div>
+      <h2>Pilotage de l'audit</h2>
+      <div class="grid-2">
+        <label>Responsable de l'audit
+          <input data-field="responsable" value="{{ audit.responsable or '' }}"></label>
+        <label>Interlocuteur commercial
+          <input data-field="interlocuteur_commercial"
+                 value="{{ audit.interlocuteur_commercial or '' }}"></label>
+        <label>Statut
+          <select data-field="statut">
+            <option value="en_cours" {% if audit.statut == 'en_cours' %}selected{% endif %}>En cours</option>
+            <option value="valide" {% if audit.statut == 'valide' %}selected{% endif %}>Validé</option>
+            <option value="archive" {% if audit.statut == 'archive' %}selected{% endif %}>Archivé</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <!-- ========== TAB Sites & Internet ========== -->
+    <section class="tab-panel" data-panel="sites">
+      <h2>Sites de l'entreprise <button class="btn btn-sm btn-primary" id="btn_add_site">+ Ajouter un site</button></h2>
+      <p class="hint">Pour chaque site : connexion Internet, plan IP, téléphonie.</p>
+      <div id="sites_container"></div>
+    </section>
+
+    <!-- ========== TAB Équipements ========== -->
+    <section class="tab-panel" data-panel="equipements">
+      <h2>Inventaire des équipements</h2>
+      <p class="hint">Ajoutez chaque élément découvert : <strong>il apparaît instantanément dans le schéma</strong>. Glissez-déposez pour repositionner.</p>
+
+      <div class="quick-add">
+        {% for t in ['internet', 'modem_box', 'firewall', 'routeur', 'switch',
+                     'ap_wifi', 'serveur_physique', 'hyperviseur', 'serveur_virtuel',
+                     'nas', 'ipbx', 'imprimante', 'poste', 'onduleur'] %}
+          {% set vis = equip_visual[t] %}
+          <button class="quick-add-btn" data-type="{{ t }}"
+                  style="border-color:{{ vis.color }}">
+            <span>{{ vis.icon }}</span>{{ vis.label }}
+          </button>
+        {% endfor %}
+        <button class="quick-add-btn" data-type="autre">
+          <span>❓</span>Autre
+        </button>
+      </div>
+
+      <div id="equipements_container">
+        <p class="empty">Cliquez sur un bouton ci-dessus pour ajouter un équipement.</p>
+      </div>
+    </section>
+
+    <!-- ========== TAB Liaisons ========== -->
+    <section class="tab-panel" data-panel="liaisons">
+      <h2>Liaisons entre équipements</h2>
+      <p class="hint">Définir les connexions logiques ou physiques entre équipements.</p>
+      <div class="liaison-add">
+        <select id="liaison_src"><option value="">Source...</option></select>
+        →
+        <select id="liaison_dst"><option value="">Destination...</option></select>
+        <select id="liaison_type">
+          <option value="ethernet">Ethernet</option>
+          <option value="fibre">Fibre</option>
+          <option value="wifi">WiFi</option>
+          <option value="vpn">VPN</option>
+          <option value="sdwan">SD-WAN</option>
+          <option value="sip-trunk">SIP Trunk</option>
+        </select>
+        <input id="liaison_port_src" placeholder="Port src" size="8">
+        <input id="liaison_port_dst" placeholder="Port dst" size="8">
+        <input id="liaison_vlan" placeholder="VLAN" size="6">
+        <input id="liaison_debit" placeholder="Débit" size="8">
+        <button class="btn btn-sm btn-primary" id="btn_add_liaison">+ Ajouter</button>
+      </div>
+      <table class="table" id="liaisons_table">
+        <thead><tr>
+          <th>Source</th><th>Port</th><th>Destination</th><th>Port</th>
+          <th>Type</th><th>VLAN</th><th>Débit</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ========== TAB Serveurs ========== -->
+    <section class="tab-panel" data-panel="serveurs">
+      <h2>Détail serveurs et virtualisation</h2>
+      <p class="hint">Liste filtrée des équipements ajoutés en onglet 3 de type serveur/hyperviseur/VM. Complétez ici OS, CPU, RAM, RAID, rôle.</p>
+      <div id="serveurs_container"></div>
+    </section>
+
+    <!-- ========== TAB Sécurité ========== -->
+    <section class="tab-panel" data-panel="securite">
+      <h2>Sécurité par site</h2>
+      <p class="hint">Antivirus, VPN, IDS/IPS, accès distant. Édition par site.</p>
+      <div id="securite_container"></div>
+    </section>
+
+    <!-- ========== TAB Applications ========== -->
+    <section class="tab-panel" data-panel="applications">
+      <h2>Applications métier
+        <button class="btn btn-sm btn-primary" id="btn_add_app">+ Ajouter</button>
+      </h2>
+      <div id="apps_container"></div>
+    </section>
+
+    <!-- ========== TAB Sauvegardes ========== -->
+    <section class="tab-panel" data-panel="sauvegardes">
+      <h2>Sauvegardes
+        <button class="btn btn-sm btn-primary" id="btn_add_backup">+ Ajouter</button>
+      </h2>
+      <div id="backups_container"></div>
+    </section>
+
+    <!-- ========== TAB Messagerie ========== -->
+    <section class="tab-panel" data-panel="messagerie">
+      <h2>Messagerie
+        <button class="btn btn-sm btn-primary" id="btn_add_msg">+ Ajouter</button>
+      </h2>
+      <div id="msgs_container"></div>
+    </section>
+
+    <!-- ========== TAB Divers ========== -->
+    <section class="tab-panel" data-panel="divers">
+      <h2>Problèmes récurrents / Points en suspens</h2>
+      <textarea data-field="problemes_recurrents" rows="5"
+        placeholder="Lister les pannes récurrentes, points bloquants à reprendre…">{{ audit.problemes_recurrents or '' }}</textarea>
+
+      <h2>Documentation existante</h2>
+      <p class="hint">Existe-t-il une documentation réseau / des schémas / des procédures internes ?</p>
+      <textarea data-field="documentation_existante" rows="5">{{ audit.documentation_existante or '' }}</textarea>
+
+      <h2>Notes générales</h2>
+      <textarea data-field="notes_generales" rows="5">{{ audit.notes_generales or '' }}</textarea>
+
+      <hr>
+      <h2>Zone dangereuse</h2>
+      <form method="POST"
+            action="{{ url_for('supprimer_audit', audit_id=audit.id) }}"
+            onsubmit="return confirm('Supprimer cet audit définitivement ?');">
+        <button type="submit" class="btn btn-danger">Supprimer cet audit</button>
+      </form>
+    </section>
+
+    <div class="form-footer">
+      <small class="muted">Sauvegarde automatique • <a href="{{ url_for('index') }}">← Retour à l'accueil</a></small>
+    </div>
+  </div>
+
+  <!-- =================== COLONNE DROITE : SCHÉMA LIVE =================== -->
+  <aside class="schema-pane">
+    <div class="schema-controls">
+      <strong>Schéma temps réel</strong>
+      <label><input type="radio" name="vue" value="logique" checked> Logique</label>
+      <label><input type="radio" name="vue" value="physique"> Physique</label>
+      <button class="btn btn-sm" id="btn_auto_layout">⊞ Réorganiser</button>
+    </div>
+    <div class="schema-canvas-wrap">
+      <svg id="schema_svg" xmlns="http://www.w3.org/2000/svg"
+           viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet">
+      </svg>
+    </div>
+    <p class="hint" style="padding:8px 12px;margin:0">
+      💡 Glissez les boîtes pour les repositionner. Double-cliquez pour éditer.
+    </p>
+  </aside>
+
+</div>
+
+<!-- ========== MODAL d'édition équipement ========== -->
+<div id="modal_eq" class="modal" hidden>
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeEqModal()">×</button>
+    <h3 id="modal_eq_title">Équipement</h3>
+    <input type="hidden" id="m_eq_id">
+    <div class="grid-2">
+      <label>Type
+        <select id="m_eq_type">
+          {% for t in types_equipement %}
+            {% set vis = equip_visual.get(t, equip_visual['autre']) %}
+            <option value="{{ t }}">{{ vis.icon }} {{ vis.label }}</option>
+          {% endfor %}
+        </select></label>
+      <label>Site
+        <select id="m_eq_site_id"><option value="">—</option></select></label>
+      <label>Nom hôte
+        <input id="m_eq_nom_hote"></label>
+      <label>Marque
+        <input id="m_eq_marque"></label>
+      <label>Modèle
+        <input id="m_eq_modele"></label>
+      <label>N° série
+        <input id="m_eq_numero_serie"></label>
+      <label>Adresse IP
+        <input id="m_eq_ip" placeholder="192.168.1.1"></label>
+      <label>MAC
+        <input id="m_eq_mac"></label>
+      <label>VLAN
+        <input id="m_eq_vlan"></label>
+      <label class="full">Rôle / fonction
+        <input id="m_eq_role"
+               placeholder="ex: AD, DNS, DHCP, file server, BDD, gateway..."></label>
+      <label>OS
+        <input id="m_eq_os" placeholder="Windows Server, Debian, ESXi..."></label>
+      <label>Version OS
+        <input id="m_eq_os_version"></label>
+      <label>CPU
+        <input id="m_eq_cpu"></label>
+      <label>RAM
+        <input id="m_eq_ram"></label>
+      <label>Stockage
+        <input id="m_eq_stockage"></label>
+      <label>RAID
+        <input id="m_eq_raid"></label>
+      <label>Capacité totale (stockage)
+        <input id="m_eq_capacite_totale"></label>
+      <label>Taux d'occupation
+        <input id="m_eq_taux_occupation" placeholder="65%"></label>
+      <label>Date mise en service
+        <input id="m_eq_date_mise_service"></label>
+      <label>Nb VM
+        <input id="m_eq_nb_vm" type="number" min="0"></label>
+      <label>Rack
+        <input id="m_eq_rack"></label>
+      <label>Position (U)
+        <input id="m_eq_rack_u"></label>
+      <label class="full">Commentaires
+        <textarea id="m_eq_commentaires" rows="2"></textarea></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteEquipement()">Supprimer</button>
+      <span class="flex-spacer"></span>
+      <button class="btn btn-secondary" onclick="closeEqModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveEqModal()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MODAL édition site ========== -->
+<div id="modal_site" class="modal" hidden>
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeSiteModal()">×</button>
+    <h3>Site</h3>
+    <input type="hidden" id="m_site_id">
+    <div class="grid-2">
+      <label class="full">Nom du site
+        <input id="m_site_nom"></label>
+      <label class="full">Adresse
+        <input id="m_site_adresse"></label>
+      <label>FAI
+        <input id="m_site_fai" placeholder="Zeop, Orange, SFR..."></label>
+      <label>Type de connexion
+        <select id="m_site_type_connexion">
+          <option value="">—</option>
+          <option>Fibre</option><option>VDSL</option><option>ADSL</option>
+          <option>SDSL</option><option>4G/5G</option><option>Starlink</option>
+          <option>Autre</option>
+        </select></label>
+      <label>Débit ↓
+        <input id="m_site_debit_down" placeholder="1 Gbps"></label>
+      <label>Débit ↑
+        <input id="m_site_debit_up"></label>
+      <label>IP publique
+        <input id="m_site_ip_publique" placeholder="165.169.221.154"></label>
+      <label>Backup Internet
+        <input id="m_site_backup_connexion" placeholder="4G secours..."></label>
+      <label class="full">Plan d'adressage IP
+        <textarea id="m_site_plan_ip" rows="2"
+          placeholder="LAN: 192.168.1.0/24, DMZ: 192.168.10.0/24, IoT: 192.168.20.0/24"></textarea></label>
+      <label>Plage DHCP
+        <input id="m_site_plage_dhcp" placeholder="192.168.1.100-200"></label>
+      <label>VoIP — solution
+        <input id="m_site_voip_solution" placeholder="Xorcom, 3CX, Asterisk..."></label>
+      <label>PABX
+        <input id="m_site_voip_pabx"></label>
+      <label>Softphone ?
+        <select id="m_site_voip_softphone">
+          <option value="0">Non</option><option value="1">Oui</option></select></label>
+      <label class="full">Notes
+        <textarea id="m_site_notes" rows="2"></textarea></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteSite()">Supprimer site</button>
+      <span class="flex-spacer"></span>
+      <button class="btn btn-secondary" onclick="closeSiteModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="saveSiteModal()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Constantes côté serveur
+  window.EQUIP_VISUAL = {{ equip_visual | tojson }};
+  window.AUDIT_ID = {{ audit.id }};
+</script>
+<script src="{{ url_for('static', filename='js/schema.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

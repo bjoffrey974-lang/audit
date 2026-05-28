@@ -1,0 +1,23 @@
+[Unit]
+Description=Audit IT - Application Flask
+After=network.target
+
+[Service]
+Type=simple
+User=audit
+Group=audit
+WorkingDirectory=/opt/audit-it
+Environment="PATH=/opt/audit-it/venv/bin"
+Environment="SECRET_KEY=change-me-in-production"
+Environment="ADMIN_PASSWORD=AuditIT@2026"
+ExecStart=/opt/audit-it/venv/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:5002 \
+    --access-logfile /var/log/audit-it/access.log \
+    --error-logfile /var/log/audit-it/error.log \
+    app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

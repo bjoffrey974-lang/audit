@@ -1,0 +1,48 @@
+# /etc/nginx/sites-available/audit-it
+# Reverse proxy vers Gunicorn (port 5002 en local)
+# À adapter selon ton DNS — exemple : audit.myithead.com
+
+server {
+    listen 80;
+    server_name audit.myithead.com;
+
+    # Redirection HTTPS (à activer après obtention du certif Let's Encrypt)
+    # return 301 https://$host$request_uri;
+
+    location / {
+        proxy_pass http://127.0.0.1:5002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Uploads et exports volumineux
+        client_max_body_size 50M;
+        proxy_read_timeout 120s;
+    }
+
+    access_log /var/log/nginx/audit-it.access.log;
+    error_log /var/log/nginx/audit-it.error.log;
+}
+
+# Une fois Certbot exécuté, dé-commenter le bloc ci-dessous
+# (Certbot l'ajoutera automatiquement si appelé avec --nginx)
+#
+# server {
+#     listen 443 ssl http2;
+#     server_name audit.myithead.com;
+#
+#     ssl_certificate     /etc/letsencrypt/live/audit.myithead.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/audit.myithead.com/privkey.pem;
+#     include /etc/letsencrypt/options-ssl-nginx.conf;
+#     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:5002;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         client_max_body_size 50M;
+#         proxy_read_timeout 120s;
+#     }
+# }

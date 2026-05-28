@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Schéma — {{ audit.client.nom }}{% endblock %}
+
+{% block content %}
+<div class="schema-fullscreen" data-audit-id="{{ audit.id }}">
+  <div class="schema-controls">
+    <h2>{{ audit.client.nom }} — schéma</h2>
+    <label><input type="radio" name="vue" value="logique" checked> Logique</label>
+    <label><input type="radio" name="vue" value="physique"> Physique</label>
+    <button class="btn btn-sm" id="btn_auto_layout">⊞ Réorganiser</button>
+    <a href="{{ url_for('export_svg', audit_id=audit.id) }}"
+       class="btn btn-sm btn-export">📥 SVG</a>
+    <a href="{{ url_for('export_png', audit_id=audit.id) }}"
+       class="btn btn-sm btn-export">📥 PNG</a>
+    <a href="{{ url_for('audit_edit', audit_id=audit.id) }}"
+       class="btn btn-sm btn-secondary">← Retour à l'audit</a>
+  </div>
+  <div class="schema-canvas-wrap big">
+    <svg id="schema_svg" xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.EQUIP_VISUAL = {{ equip_visual | tojson }};
+  window.AUDIT_ID = {{ audit.id }};
+  window.SCHEMA_ONLY = true;
+</script>
+<script src="{{ url_for('static', filename='js/schema.js') }}"></script>
+{% endblock %}
