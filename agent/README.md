@@ -7,24 +7,27 @@ importable dans la plateforme d'audit.
 
 ## Ce qu'il collecte
 
-**Inventaire** : nom d'hôte, marque, modèle, n° série, CPU, RAM, stockage,
+**Inventaire système** : nom d'hôte, marque, modèle, n° série, CPU, RAM, stockage,
 OS + version/build, IP, MAC.
 
-**Conformité** (statuts : Conforme / Attention / Critique / Indéterminé) :
-- Pare-feu Windows (3 profils)
-- Antivirus présent + signatures à jour
-- BitLocker (chiffrement disque)
-- Mises à jour Windows récentes
-- Version Windows supportée (fin de vie)
-- Comptes administrateurs locaux maîtrisés
-- Compte 'Administrateur' natif désactivé
-- Mots de passe sans expiration
-- Bureau à distance (RDP) maîtrisé
-- UAC activé
-- SMBv1 désactivé
-- Partages réseau
-- Espace disque, uptime
-- (serveurs) rôles installés, sauvegarde
+**17 contrôles de conformité** (statuts : Conforme / Attention / Critique / Indéterminé) :
+pare-feu, antivirus, BitLocker, MAJ, fin de vie Windows, comptes admin, RDP,
+UAC, SMBv1, partages, espace disque, uptime, et 2 contrôles serveurs.
+
+**Collecte détaillée « winaudit-like »** (depuis v1.1) — listes brutes pour l'audit :
+- Applications installées (nom, version, éditeur, date d'installation)
+- Mises à jour Windows (toutes les KB avec date)
+- Comptes utilisateurs locaux (état, mot de passe, dernière connexion)
+- Services Windows (état, démarrage, compte d'exécution)
+- Pilotes (fabricant, version, date)
+- Tâches planifiées non Microsoft
+- Règles pare-feu actives
+- Sessions ouvertes
+- Volumes / partitions
+- Configuration réseau (interfaces, DNS, passerelle)
+- Échecs d'authentification récents (30j, nécessite admin)
+- **Logiciels d'accès distant détectés** (TeamViewer, AnyDesk, VNC, LogMeIn…)
+  — croisement automatique avec la liste des applications.
 
 ## Élévation administrateur
 
@@ -66,13 +69,22 @@ les serveurs. Sur un poste, ces contrôles sont marqués « N/A ».
 
 ```
 agent/
-├── agent_gui.py    # interface Tkinter (point d'entrée)
-├── checks.py       # les 17 contrôles (PowerShell + interprétation)
-├── collect.py      # inventaire matériel/OS (PowerShell/CIM)
+├── agent_gui.py    # interface Tkinter (point d'entrée, onglets Conformité + Détails)
+├── checks.py       # les 17 contrôles de conformité
+├── collect.py      # inventaire matériel/OS (CPU, RAM, IP, MAC…)
+├── details.py      # collecte détaillée (applis, MAJ, comptes, services, FW…)
 ├── elevation.py    # détection admin + auto-élévation UAC + fallback
 ├── build.txt       # packaging PyInstaller (.exe)
 └── README.md
 ```
+
+## Durée d'un audit
+
+- Conformité seule (17 contrôles) : ~5 secondes
+- Conformité + collecte détaillée complète : 20 secondes à 2 minutes selon la
+  machine (le poste vs serveur avec beaucoup d'historique de patches).
+
+La GUI affiche une barre de progression détaillée à chaque étape.
 
 ## Limites
 

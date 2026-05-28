@@ -23,10 +23,12 @@ try:
     from elevation import is_admin, ensure_admin
     from checks import detect_profil, run_checks, CHECKS
     from collect import collect_machine
+    from details import collect_all as collect_details, count_summary, COLLECTORS
 except ImportError:
     from .elevation import is_admin, ensure_admin
     from .checks import detect_profil, run_checks, CHECKS
     from .collect import collect_machine
+    from .details import collect_all as collect_details, count_summary, COLLECTORS
 
 
 # Libellés lisibles des contrôles (repris du référentiel, dupliqués ici pour
@@ -107,11 +109,15 @@ class AgentApp:
                                     font=("", 14, "bold"), pady=6)
         self.summary_lbl.pack(fill="x")
 
-        # Tableau des contrôles
-        mid = ttk.Frame(self.root, padding=10)
-        mid.pack(fill="both", expand=True)
+        # Zone centrale : notebook avec onglets Conformité / Détails
+        nb = ttk.Notebook(self.root)
+        nb.pack(fill="both", expand=True, padx=10, pady=(0, 0))
+
+        # --- Onglet Conformité ---
+        tab_conf = ttk.Frame(nb)
+        nb.add(tab_conf, text="Conformité (17 contrôles)")
         cols = ("controle", "statut", "detail")
-        self.tree = ttk.Treeview(mid, columns=cols, show="headings")
+        self.tree = ttk.Treeview(tab_conf, columns=cols, show="headings")
         self.tree.heading("controle", text="Contrôle")
         self.tree.heading("statut", text="Statut")
         self.tree.heading("detail", text="Détail")
@@ -121,9 +127,65 @@ class AgentApp:
         self.tree.pack(side="left", fill="both", expand=True)
         for st, col in STATUT_COULEUR.items():
             self.tree.tag_configure(st, foreground=col)
-        sb = ttk.Scrollbar(mid, orient="vertical", command=self.tree.yview)
+        sb = ttk.Scrollbar(tab_conf, orient="vertical",
+                           command=self.tree.yview)
         sb.pack(side="left", fill="y")
         self.tree.configure(yscrollcommand=sb.set)
+
+        # --- Onglet Détails (winaudit-like) ---
+        tab_det = ttk.Frame(nb)
+        nb.add(tab_det, text="Détails (applis, MAJ, comptes…)")
+
+        # Sous-notebook avec une section par catégorie
+        self.details_nb = ttk.Notebook(tab_det)
+        self.details_nb.pack(fill="both", expand=True)
+        self.details_trees = {}  # key -> Treeview
+
+        # Définitions des colonnes affichées par catégorie
+        self.DETAIL_COLUMNS = {
+            "applications":    [("nom", "Nom", 280), ("version", "Version", 110),
+                                ("editeur", "Éditeur", 180),
+                                ("date_install", "Installé", 100)],
+            "updates":         [("kb", "KB", 110), ("type", "Type", 140),
+                                ("date_install", "Date", 100),
+                                ("installe_par", "Par", 200)],
+            "users":           [("nom", "Nom", 160), ("active", "Activé", 70),
+                                ("description", "Description", 220),
+                                ("derniere_connexion", "Dernière connexion", 140),
+                                ("mdp_jamais_expire", "Mdp éternel", 90)],
+            "services":        [("nom_affiche", "Service", 260), ("etat", "État", 90),
+                                ("demarrage", "Démarrage", 100),
+                                ("compte", "Compte", 180)],
+            "drivers":         [("peripherique", "Périphérique", 280),
+                                ("fabricant", "Fabricant", 160),
+                                ("version", "Version", 110),
+                                ("date", "Date", 100)],
+            "scheduled_tasks": [("nom", "Tâche", 260), ("chemin", "Chemin", 220),
+                                ("etat", "État", 80),
+                                ("derniere_exec", "Dernière exéc.", 130)],
+            "firewall_rules":  [("nom", "Règle", 380),
+                                ("direction", "Direction", 90),
+                                ("profil", "Profil", 100)],
+            "sessions":        [("utilisateur", "Utilisateur", 200),
+                                ("etat", "État", 100), ("session", "Session", 100)],
+            "volumes":         [("lettre", "Lettre", 70), ("label", "Label", 140),
+                                ("fs", "FS", 80),
+                                ("taille_go", "Taille (Go)", 100),
+                                ("libre_go", "Libre (Go)", 100),
+                                ("etat", "État", 90)],
+            "network":         [("interface", "Interface", 160),
+                                ("ip", "IP", 140), ("mac", "MAC", 160),
+                                ("passerelle", "Passerelle", 130),
+                                ("dns", "DNS", 220)],
+            "auth_failures":   [("date", "Date", 140), ("message", "Message", 500)],
+            "remote_access":   [("nom", "Logiciel", 240), ("version", "Version", 110),
+                                ("editeur", "Éditeur", 180)],
+        }
+        self.DETAIL_LABELS = {key: label for key, label, _ in COLLECTORS}
+        self.DETAIL_LABELS["remote_access"] = "⚠ Accès distants détectés"
+
+        # On crée les onglets vides ; ils seront remplis quand un audit est lancé
+        self.detail_tabs_created = False
 
         # Bas : enregistrer
         bottom = ttk.Frame(self.root, padding=10)
@@ -135,7 +197,6 @@ class AgentApp:
         self.btn_save.pack(side="right")
 
     def on_run(self):
-        self.tree.delete(*self.tree.get_children())
         self.payload = None
         self.btn_save.config(state="disabled")
         self.btn_run.config(state="disabled")
@@ -151,24 +212,39 @@ class AgentApp:
                 f"Profil : {profil} — collecte inventaire…"))
             machine = collect_machine()
 
-            def progress_cb(done, total, cid):
-                pct = (done / total) * 100
-                self.root.after(0, self._progress, pct, cid)
+            # --- Phase 1 : contrôles de conformité (17, rapide) ---
+            n_checks = len(CHECKS)
+            n_details = len(COLLECTORS)
+            total_steps = n_checks + n_details
+
+            def progress_checks(done, total, cid):
+                pct = (done / total_steps) * 100
+                self.root.after(0, self._progress, pct,
+                                f"Contrôle : {LIBELLES.get(cid, cid)[:30]}")
 
             resultats = run_checks(profil, is_admin=self.admin,
-                                   progress_cb=progress_cb)
+                                   progress_cb=progress_checks)
 
-            # Calcul du score local (logique reprise du référentiel)
+            # --- Phase 2 : collecte détaillée (winaudit-like) ---
+            def progress_details(i, t, label):
+                pct = ((n_checks + i) / total_steps) * 100
+                self.root.after(0, self._progress, pct,
+                                f"Détails : {label[:30]}")
+
+            details = collect_details(progress_cb=progress_details)
+
+            # Calcul du score local
             score, niveau, nb_crit = self._score(resultats)
 
             payload = {
                 "type": "inventaire_poste",
                 "date": datetime.now().isoformat(timespec="seconds"),
-                "outil": "audit-agent", "version": "1.0",
+                "outil": "audit-agent", "version": "1.1",
                 "profil": profil,
                 "machine": machine,
                 "conformite": resultats,
                 "score_local": score, "niveau_local": niveau,
+                "details": details,
             }
             self.root.after(0, self._done, payload, score, niveau, nb_crit)
         except Exception as e:
@@ -216,18 +292,24 @@ class AgentApp:
             niveau = "non_conforme"
         return score, niveau, nb_crit
 
-    def _progress(self, pct, cid):
+    def _progress(self, pct, label):
         self.progress.config(value=pct)
-        self.status_var.set(f"Contrôle : {LIBELLES.get(cid, cid)[:30]}")
+        self.status_var.set(label)
 
     def _done(self, payload, score, niveau, nb_crit):
         self.payload = payload
+        # --- Onglet Conformité ---
+        for item in self.tree.get_children():
+            self.tree.delete(item)
         for r in payload["conformite"]:
             self.tree.insert("", "end", tags=(r["statut"],), values=(
                 LIBELLES.get(r["id"], r["id"]),
                 STATUT_LABEL.get(r["statut"], r["statut"]),
                 r.get("detail", ""),
             ))
+        # --- Onglet Détails (winaudit-like) ---
+        self._populate_details(payload.get("details", {}))
+
         col = STATUT_COULEUR.get(
             "ok" if niveau == "conforme" else
             "attention" if niveau == "partiel" else
@@ -237,8 +319,18 @@ class AgentApp:
                       "indetermine": "INDÉTERMINÉ"}.get(niveau, niveau)
         score_txt = "—" if score is None else f"{score}/100"
         self.summary_lbl.config(fg=col)
+        # Petit récap des compteurs détails
+        cs = count_summary(payload.get("details", {})) if payload.get("details") else {}
+        recap_det = ""
+        if cs:
+            recap_det = (f"  •  {cs.get('applications',0)} applis, "
+                         f"{cs.get('updates',0)} MAJ, "
+                         f"{cs.get('users',0)} comptes")
+            if cs.get("remote_access"):
+                recap_det += f"  ⚠ {cs['remote_access']} outil(s) d'accès distant"
         self.summary_var.set(f"Score : {score_txt}  —  {niveau_txt}"
-                             + (f"  ({nb_crit} critique(s))" if nb_crit else ""))
+                             + (f"  ({nb_crit} critique(s))" if nb_crit else "")
+                             + recap_det)
         self.machine_var.set(
             f"{payload['machine'].get('nom_hote','?')} "
             f"({payload['profil']}) — {payload['machine'].get('os','?')}")
@@ -246,6 +338,53 @@ class AgentApp:
         self.progress.config(value=100)
         self.btn_run.config(state="normal")
         self.btn_save.config(state="normal")
+
+    def _populate_details(self, details):
+        """Crée ou rafraîchit les onglets de détails avec les données collectées."""
+        # Reset : supprimer les onglets existants pour repartir propre
+        for tab_id in self.details_nb.tabs():
+            self.details_nb.forget(tab_id)
+        self.details_trees.clear()
+
+        # Ordre d'affichage : on met "remote_access" en premier s'il y a des
+        # détections (alerte visible immédiatement)
+        order = list(self.DETAIL_COLUMNS.keys())
+        if details.get("remote_access"):
+            order.remove("remote_access")
+            order.insert(0, "remote_access")
+
+        for key in order:
+            rows = details.get(key, [])
+            cols_def = self.DETAIL_COLUMNS.get(key, [])
+            if not cols_def:
+                continue
+            label = self.DETAIL_LABELS.get(key, key)
+            # Titre d'onglet avec compteur
+            tab_title = f"{label} ({len(rows)})"
+            frame = ttk.Frame(self.details_nb)
+            self.details_nb.add(frame, text=tab_title)
+            col_ids = [c[0] for c in cols_def]
+            tv = ttk.Treeview(frame, columns=col_ids, show="headings")
+            for cid, cname, cw in cols_def:
+                tv.heading(cid, text=cname)
+                tv.column(cid, width=cw, anchor="w")
+            tv.pack(side="left", fill="both", expand=True)
+            sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
+            sb.pack(side="left", fill="y")
+            tv.configure(yscrollcommand=sb.set)
+            # Remplissage
+            for row in rows:
+                values = []
+                for cid in col_ids:
+                    v = row.get(cid, "")
+                    # Booléens en oui/non lisibles
+                    if isinstance(v, bool):
+                        v = "Oui" if v else "Non"
+                    elif v is None:
+                        v = ""
+                    values.append(str(v))
+                tv.insert("", "end", values=values)
+            self.details_trees[key] = tv
 
     def _error(self, msg):
         self.status_var.set("Erreur.")
