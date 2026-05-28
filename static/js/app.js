@@ -792,6 +792,82 @@ window.AppLogic = (function () {
     refreshLiaisonSelectors();
   });
 
+  // -------------------- Conformité (affichage des bilans) --------------------
+  let conformites = [];
+  const STATUT_VISUAL = {
+    ok: { color: "#198754", label: "Conforme", icon: "✓" },
+    attention: { color: "#fd7e14", label: "Attention", icon: "!" },
+    critique: { color: "#dc3545", label: "Critique", icon: "✕" },
+    indetermine: { color: "#adb5bd", label: "Indéterminé", icon: "?" },
+    na: { color: "#ced4da", label: "N/A", icon: "–" },
+  };
+  const NIVEAU_VISUAL = {
+    conforme: { color: "#198754", label: "Conforme" },
+    partiel: { color: "#fd7e14", label: "Partiellement conforme" },
+    non_conforme: { color: "#dc3545", label: "Non conforme" },
+    indetermine: { color: "#adb5bd", label: "Indéterminé" },
+  };
+
+  function loadConformites() {
+    fetch(`/api/audit/${AUDIT_ID}/conformites`).then(r => r.json()).then(d => {
+      conformites = d || [];
+      renderConformites();
+    }).catch(() => {});
+  }
+
+  function renderConformites() {
+    const c = document.getElementById("conformite_container");
+    if (!c) return;
+    if (!conformites.length) {
+      c.innerHTML = '<p class="empty">Aucun bilan de conformité. Lancez l\'agent sur une machine puis importez le JSON.</p>';
+      return;
+    }
+    c.innerHTML = "";
+    conformites.forEach(conf => c.appendChild(buildConfCard(conf)));
+  }
+
+  function buildConfCard(conf) {
+    const nv = NIVEAU_VISUAL[conf.niveau] || NIVEAU_VISUAL.indetermine;
+    const div = document.createElement("div");
+    div.className = "site-card";
+    const scoreTxt = conf.score == null ? "—" : conf.score + "/100";
+    let rows = "";
+    (conf.resultats || []).forEach(r => {
+      const sv = STATUT_VISUAL[r.statut] || STATUT_VISUAL.indetermine;
+      const lbl = (window.CONF_LABELS && window.CONF_LABELS[r.id]) || r.id;
+      rows += `<tr>
+        <td><span class="conf-dot" style="background:${sv.color}">${sv.icon}</span>
+            ${escape(lbl)}</td>
+        <td style="color:${sv.color};font-weight:600">${sv.label}</td>
+        <td><small class="muted">${escape(r.detail || "")}</small></td>
+      </tr>`;
+    });
+    div.innerHTML = `
+      <div class="site-card-header">
+        <strong>🖥 ${escape(conf.machine || "Machine")}
+          <span class="muted">(${escape(conf.profil || "?")})</span></strong>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="conf-badge" style="background:${nv.color}">${nv.label}</span>
+          <span style="font-weight:700;font-size:18px;color:${nv.color}">${scoreTxt}</span>
+          <button class="btn btn-sm btn-danger" data-del-conf="${conf.id}">×</button>
+        </div>
+      </div>
+      <small class="muted">Collecté le ${escape(conf.date_collecte || "?")}
+        · ${conf.nb_critiques} point(s) critique(s)</small>
+      <table class="table" style="margin-top:8px">
+        <thead><tr><th>Contrôle</th><th>Statut</th><th>Détail</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    div.querySelector("[data-del-conf]").addEventListener("click", () => {
+      if (!confirm("Supprimer ce bilan de conformité ?")) return;
+      fetch(`/api/conformite/${conf.id}`, { method: "DELETE" }).then(() => {
+        conformites = conformites.filter(x => x.id !== conf.id);
+        renderConformites();
+      });
+    });
+    return div;
+  }
+
   // -------------------- Import (scanner réseau / agent poste) --------------------
   const btnImport = document.getElementById("btn_import");
   const importFile = document.getElementById("import_file");
@@ -813,18 +889,31 @@ window.AppLogic = (function () {
             return;
           }
           flagSaved(true);
-          const s = res.stats;
-          alert(`Import terminé :\n` +
-                `• ${s.crees} équipement(s) créé(s)\n` +
-                `• ${s.maj} mis à jour\n` +
-                `• ${s.ignores} déjà à jour (ignorés)\n` +
-                `• ${s.total} au total dans le fichier`);
+          if (res.mode === "inventaire") {
+            const r = res.resultat;
+            const niveau = { conforme: "Conforme", partiel: "Partiellement conforme",
+                             non_conforme: "NON CONFORME", indetermine: "Indéterminé" }[r.niveau] || r.niveau;
+            alert(`Inventaire poste importé :\n` +
+                  `• Machine ${r.action === "cree" ? "créée" : "mise à jour"}\n` +
+                  `• Conformité : ${r.score == null ? "—" : r.score + "/100"} (${niveau})`);
+            loadConformites();
+          } else {
+            const s = res.stats;
+            alert(`Import terminé :\n` +
+                  `• ${s.crees} équipement(s) créé(s)\n` +
+                  `• ${s.maj} mis à jour\n` +
+                  `• ${s.ignores} déjà à jour (ignorés)\n` +
+                  `• ${s.total} au total dans le fichier`);
+          }
           // Recharge tout le schéma + les listes
           if (window.SchemaApp) window.SchemaApp.load();
         })
         .catch(err => { flagSaved(false); alert("Erreur réseau : " + err); });
     });
   }
+
+  // Charge les bilans de conformité existants
+  loadConformites();
 
   // Chargement initial des sites + apps + backups + msgs
   fetch(`/api/audit/${AUDIT_ID}`).then(r => r.json()).then(data => {

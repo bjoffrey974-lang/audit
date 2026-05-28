@@ -164,3 +164,83 @@ def importer_payload(audit, payload, db, Equipement):
 
     db.session.commit()
     return stats
+
+
+def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
+    """
+    Importe un inventaire de poste/serveur (avec bloc conformité éventuel).
+    Crée/met à jour l'équipement, et enregistre un bilan de conformité.
+    Retourne {equipement_id, conformite_id, score, niveau, action}.
+    """
+    import json as _json
+    from conformite_ref import calcul_score, niveau_global
+
+    machine = payload.get("machine") or {}
+    ip = (machine.get("ip") or "").strip()
+    mac = (machine.get("mac") or "").strip()
+    nom = machine.get("nom_hote") or machine.get("hostname") or ip or "Poste importé"
+    profil = payload.get("profil") or "poste"
+    eq_type = "serveur_physique" if profil == "serveur" else "poste"
+
+    # Cherche un équipement existant (par IP puis MAC)
+    existants = Equipement.query.filter_by(audit_id=audit.id).all()
+    cible = None
+    if ip:
+        cible = next((e for e in existants if e.ip == ip), None)
+    if not cible and mac:
+        cible = next((e for e in existants if e.mac and e.mac.lower() == mac.lower()), None)
+
+    action = "maj"
+    if not cible:
+        idx = len(existants)
+        cible = Equipement(
+            audit_id=audit.id, type=eq_type,
+            pos_x=40 + (idx % 6) * 140, pos_y=40 + (idx // 6) * 110,
+        )
+        db.session.add(cible)
+        action = "cree"
+
+    # Remplit les champs machine (complète les vides + champs techniques)
+    for champ in ("nom_hote", "marque", "modele", "numero_serie", "ip", "mac",
+                  "os", "os_version", "cpu", "ram", "stockage"):
+        val = machine.get(champ)
+        if val and not getattr(cible, champ, None):
+            setattr(cible, champ, val)
+    if not cible.nom_hote:
+        cible.nom_hote = nom
+    db.session.flush()
+
+    # --- Bloc conformité ---
+    conformite_id = None
+    score = None
+    niveau = "indetermine"
+    resultats = payload.get("conformite") or []
+    if resultats:
+        calc = calcul_score(resultats)
+        score = calc["score"]
+        niveau = niveau_global(score, calc["nb_critiques"])
+        conf = Conformite(
+            audit_id=audit.id,
+            equipement_id=cible.id,
+            machine=nom,
+            profil=profil,
+            date_collecte=payload.get("date"),
+            outil=payload.get("outil"),
+            version_outil=payload.get("version"),
+            score=score,
+            niveau=niveau,
+            nb_critiques=calc["nb_critiques"],
+            resultats_json=_json.dumps(resultats, ensure_ascii=False),
+        )
+        db.session.add(conf)
+        db.session.flush()
+        conformite_id = conf.id
+
+    db.session.commit()
+    return {
+        "equipement_id": cible.id,
+        "conformite_id": conformite_id,
+        "score": score,
+        "niveau": niveau,
+        "action": action,
+    }

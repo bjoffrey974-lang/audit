@@ -10,7 +10,7 @@ from flask import (
 )
 from models import (
     db, Client, Audit, Site, Equipement, Liaison, Application,
-    Sauvegarde, Messagerie, TYPES_EQUIPEMENT, EQUIP_VISUAL
+    Sauvegarde, Messagerie, Conformite, TYPES_EQUIPEMENT, EQUIP_VISUAL
 )
 
 
@@ -66,12 +66,15 @@ def create_app():
 
     @app.route("/audit/<int:audit_id>")
     def audit_edit(audit_id):
+        from conformite_ref import REFERENTIEL
         audit = Audit.query.get_or_404(audit_id)
+        conf_labels = {c["id"]: c["libelle"] for c in REFERENTIEL}
         return render_template(
             "audit.html",
             audit=audit,
             types_equipement=TYPES_EQUIPEMENT,
             equip_visual=EQUIP_VISUAL,
+            conf_labels=conf_labels,
         )
 
     @app.route("/audit/<int:audit_id>/schema")
@@ -370,7 +373,7 @@ def create_app():
     # ------------------------------------------------------------------------
     @app.route("/api/audit/<int:audit_id>/import", methods=["POST"])
     def api_import(audit_id):
-        from import_data import importer_payload
+        from import_data import importer_payload, importer_inventaire_poste
         audit = Audit.query.get_or_404(audit_id)
         # Accepte soit un fichier uploadé (champ "fichier"), soit du JSON brut
         payload = None
@@ -383,14 +386,52 @@ def create_app():
                 return jsonify({"error": f"JSON invalide : {e}"}), 400
         else:
             payload = request.get_json(silent=True)
-        if not payload or "equipements" not in payload:
-            return jsonify({"error": "Format invalide : clé 'equipements' attendue"}), 400
+        if not payload:
+            return jsonify({"error": "Aucune donnée reçue"}), 400
+
+        ptype = payload.get("type", "")
         try:
-            stats = importer_payload(audit, payload, db, Equipement)
+            if ptype == "inventaire_poste":
+                res = importer_inventaire_poste(
+                    audit, payload, db, Equipement, Conformite)
+                return jsonify({"ok": True, "mode": "inventaire", "resultat": res})
+            else:
+                # scan_reseau (défaut)
+                if "equipements" not in payload:
+                    return jsonify({"error": "Format invalide : 'equipements' attendu"}), 400
+                stats = importer_payload(audit, payload, db, Equipement)
+                return jsonify({"ok": True, "mode": "scan", "stats": stats})
         except Exception as e:
             db.session.rollback()
             return jsonify({"error": f"Échec import : {e}"}), 500
-        return jsonify({"ok": True, "stats": stats})
+
+    @app.route("/api/audit/<int:audit_id>/conformites", methods=["GET"])
+    def api_conformites_list(audit_id):
+        import json as _json
+        Audit.query.get_or_404(audit_id)
+        items = Conformite.query.filter_by(audit_id=audit_id).all()
+        out = []
+        for c in items:
+            try:
+                resultats = _json.loads(c.resultats_json) if c.resultats_json else []
+            except Exception:
+                resultats = []
+            out.append({
+                "id": c.id, "machine": c.machine, "profil": c.profil,
+                "date_collecte": c.date_collecte, "outil": c.outil,
+                "score": c.score, "niveau": c.niveau,
+                "nb_critiques": c.nb_critiques,
+                "equipement_id": c.equipement_id,
+                "resultats": resultats,
+            })
+        return jsonify(out)
+
+    @app.route("/api/conformite/<int:conf_id>", methods=["DELETE"])
+    def api_conformite_delete(conf_id):
+        c = Conformite.query.get_or_404(conf_id)
+        db.session.delete(c)
+        db.session.commit()
+        return jsonify({"ok": True})
 
     # ------------------------------------------------------------------------
     # EXPORTS

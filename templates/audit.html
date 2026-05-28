@@ -40,7 +40,8 @@
       <button class="tab" data-tab="applications">7. Applications</button>
       <button class="tab" data-tab="sauvegardes">8. Sauvegardes</button>
       <button class="tab" data-tab="messagerie">9. Messagerie</button>
-      <button class="tab" data-tab="divers">10. Problèmes / Doc</button>
+      <button class="tab" data-tab="conformite">10. Conformité</button>
+      <button class="tab" data-tab="divers">11. Problèmes / Doc</button>
     </nav>
 
     <!-- ========== TAB Contact ========== -->
@@ -180,6 +181,17 @@
         <button class="btn btn-sm btn-primary" id="btn_add_msg">+ Ajouter</button>
       </h2>
       <div id="msgs_container"></div>
+    </section>
+
+    <!-- ========== TAB Conformité ========== -->
+    <section class="tab-panel" data-panel="conformite">
+      <h2>Conformité sécurité des machines</h2>
+      <p class="hint">Bilans importés via l'agent Windows (inventaire + sécurité).
+        Référentiel maison aligné sur le Guide d'hygiène ANSSI.
+        Importez un fichier via le bouton <strong>⬇ Importer</strong> en haut.</p>
+      <div id="conformite_container">
+        <p class="empty">Aucun bilan de conformité. Lancez l'agent sur une machine puis importez le JSON.</p>
+      </div>
     </section>
 
     <!-- ========== TAB Divers ========== -->
@@ -358,6 +370,7 @@
   // Constantes côté serveur
   window.EQUIP_VISUAL = {{ equip_visual | tojson }};
   window.AUDIT_ID = {{ audit.id }};
+  window.CONF_LABELS = {{ conf_labels | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/schema.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>

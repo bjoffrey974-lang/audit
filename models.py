@@ -53,6 +53,7 @@ class Audit(db.Model):
     applications = relationship("Application", back_populates="audit", cascade="all, delete-orphan")
     sauvegardes = relationship("Sauvegarde", back_populates="audit", cascade="all, delete-orphan")
     messageries = relationship("Messagerie", back_populates="audit", cascade="all, delete-orphan")
+    conformites = relationship("Conformite", back_populates="audit", cascade="all, delete-orphan")
 
 
 # ============================================================================
@@ -249,7 +250,32 @@ class Messagerie(db.Model):
 
 
 # ============================================================================
-# HELPERS
+# CONFORMITÉ (bilan sécurité d'une machine auditée)
+# ============================================================================
+
+class Conformite(db.Model):
+    __tablename__ = "conformites"
+
+    id = db.Column(db.Integer, primary_key=True)
+    audit_id = db.Column(db.Integer, db.ForeignKey("audits.id"), nullable=False)
+    equipement_id = db.Column(db.Integer, db.ForeignKey("equipements.id"))
+
+    machine = db.Column(db.String(200))     # nom de la machine auditée
+    profil = db.Column(db.String(20))        # "poste" | "serveur"
+    date_collecte = db.Column(db.String(40))
+    outil = db.Column(db.String(80))
+    version_outil = db.Column(db.String(40))
+
+    score = db.Column(db.Integer)            # 0-100, ou NULL si indéterminé
+    niveau = db.Column(db.String(20))        # conforme | partiel | non_conforme | indetermine
+    nb_critiques = db.Column(db.Integer, default=0)
+
+    # Détail des contrôles, stocké en JSON texte :
+    # [{"id":"firewall_actif","statut":"ok","detail":"..."}, ...]
+    resultats_json = db.Column(db.Text)
+
+    audit = relationship("Audit", back_populates="conformites")
+    equipement = relationship("Equipement", foreign_keys=[equipement_id])
 # ============================================================================
 
 # Couleurs et icônes par type (utilisé par le générateur SVG)

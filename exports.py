@@ -471,6 +471,44 @@ def generate_pdf(audit):
         story.append(Paragraph("15. Notes générales", h2))
         story.append(Paragraph(audit.notes_generales, normal))
 
+    # ----- Conformité sécurité -----
+    if audit.conformites:
+        import json as _json
+        from conformite_ref import controle_by_id
+        story.append(PageBreak())
+        story.append(Paragraph("Conformité sécurité des machines", h2))
+        story.append(Paragraph(
+            "Référentiel maison aligné sur le Guide d'hygiène informatique de l'ANSSI. "
+            "Statuts : Conforme / Attention / Critique / Indéterminé.", small))
+        for conf in audit.conformites:
+            niveau_txt = {
+                "conforme": "CONFORME", "partiel": "PARTIELLEMENT CONFORME",
+                "non_conforme": "NON CONFORME", "indetermine": "INDÉTERMINÉ",
+            }.get(conf.niveau, conf.niveau or "—")
+            score_txt = "—" if conf.score is None else f"{conf.score}/100"
+            story.append(Spacer(1, 0.3*cm))
+            story.append(Paragraph(
+                f"<b>{conf.machine or 'Machine'}</b> ({conf.profil or '?'}) — "
+                f"score {score_txt} — <b>{niveau_txt}</b> — "
+                f"{conf.nb_critiques or 0} point(s) critique(s)", normal))
+            try:
+                resultats = _json.loads(conf.resultats_json) if conf.resultats_json else []
+            except Exception:
+                resultats = []
+            data = [["Contrôle", "Statut", "Réf. ANSSI", "Détail"]]
+            statut_lbl = {"ok": "Conforme", "attention": "Attention",
+                          "critique": "Critique", "indetermine": "Indéterminé",
+                          "na": "N/A"}
+            for r in resultats:
+                ctrl = controle_by_id(r.get("id")) or {}
+                data.append([
+                    ctrl.get("libelle", r.get("id", "?")),
+                    statut_lbl.get(r.get("statut"), r.get("statut", "?")),
+                    ctrl.get("anssi", "")[:30],
+                    (r.get("detail") or "")[:40],
+                ])
+            story.append(_make_data_table(data))
+
     # Pied
     story.append(Spacer(1, 1*cm))
     story.append(Paragraph(

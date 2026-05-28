@@ -1,0 +1,225 @@
+"""
+Référentiel de conformité sécurité — postes et serveurs Windows.
+
+Approche "maison" (pragmatique PME) avec mapping vers le Guide d'hygiène
+informatique de l'ANSSI (42 mesures, v2017). Partagé entre la plateforme
+d'audit et l'agent de collecte Windows.
+
+Chaque contrôle a :
+  - id            : identifiant stable (clé)
+  - libelle       : intitulé lisible
+  - categorie     : regroupement d'affichage
+  - anssi         : mesure(s) ANSSI de référence (texte court)
+  - profil        : "poste" | "serveur" | "both" (à qui s'applique le contrôle)
+  - criticite     : poids du contrôle s'il échoue : "critique" | "majeur" | "mineur"
+
+Le résultat d'un contrôle (rempli par l'agent) est l'un de :
+  - "ok"           : conforme
+  - "attention"    : non conforme, risque modéré
+  - "critique"     : non conforme, risque élevé
+  - "indetermine"  : non vérifiable (ex. droits insuffisants)
+  - "na"           : non applicable à ce profil de machine
+"""
+
+# Statuts possibles d'un contrôle évalué
+STATUTS = ("ok", "attention", "critique", "indetermine", "na")
+
+# Poids pour le score (les "indetermine"/"na" sont exclus du calcul)
+POIDS_CRITICITE = {"critique": 3, "majeur": 2, "mineur": 1}
+
+
+REFERENTIEL = [
+    # ---------------- Protection ----------------
+    {
+        "id": "firewall_actif",
+        "libelle": "Pare-feu Windows activé (tous profils)",
+        "categorie": "Protection",
+        "anssi": "Mesure 19 — Activer le pare-feu local",
+        "profil": "both", "criticite": "critique",
+    },
+    {
+        "id": "antivirus_present",
+        "libelle": "Antivirus présent et activé",
+        "categorie": "Protection",
+        "anssi": "Mesure 22 — Déployer un outil anti-virus",
+        "profil": "both", "criticite": "critique",
+    },
+    {
+        "id": "antivirus_ajour",
+        "libelle": "Signatures antivirus à jour",
+        "categorie": "Protection",
+        "anssi": "Mesure 22 — Anti-virus à jour",
+        "profil": "both", "criticite": "majeur",
+    },
+    {
+        "id": "chiffrement_disque",
+        "libelle": "Chiffrement du disque (BitLocker) actif",
+        "categorie": "Protection",
+        "anssi": "Mesure 31 — Chiffrer les données sensibles / matériel perdable",
+        "profil": "both", "criticite": "majeur",
+    },
+
+    # ---------------- Mises à jour ----------------
+    {
+        "id": "maj_recentes",
+        "libelle": "Mises à jour Windows récentes (< 60 jours)",
+        "categorie": "Mises à jour",
+        "anssi": "Mesure 34 — Politique de mise à jour des composants",
+        "profil": "both", "criticite": "critique",
+    },
+    {
+        "id": "os_supporte",
+        "libelle": "Version Windows encore supportée (pas en fin de vie)",
+        "categorie": "Mises à jour",
+        "anssi": "Mesure 35 — Anticiper la fin de maintenance des systèmes",
+        "profil": "both", "criticite": "critique",
+    },
+
+    # ---------------- Comptes & accès ----------------
+    {
+        "id": "admins_limites",
+        "libelle": "Nombre de comptes administrateurs locaux maîtrisé",
+        "categorie": "Comptes & accès",
+        "anssi": "Mesure 29 — Limiter les droits d'administration",
+        "profil": "both", "criticite": "majeur",
+    },
+    {
+        "id": "admin_natif_desactive",
+        "libelle": "Compte 'Administrateur' natif désactivé ou renommé",
+        "categorie": "Comptes & accès",
+        "anssi": "Mesure 10 — Gérer les comptes privilégiés",
+        "profil": "both", "criticite": "majeur",
+    },
+    {
+        "id": "mdp_jamais_expire",
+        "libelle": "Pas de compte avec mot de passe sans expiration",
+        "categorie": "Comptes & accès",
+        "anssi": "Mesure 7 — Politique de mot de passe",
+        "profil": "both", "criticite": "mineur",
+    },
+    {
+        "id": "rdp_maitrise",
+        "libelle": "Bureau à distance (RDP) désactivé ou maîtrisé",
+        "categorie": "Comptes & accès",
+        "anssi": "Mesure 28 — Administration via réseau dédié",
+        "profil": "both", "criticite": "majeur",
+    },
+
+    # ---------------- Configuration ----------------
+    {
+        "id": "uac_actif",
+        "libelle": "Contrôle de compte utilisateur (UAC) activé",
+        "categorie": "Configuration",
+        "anssi": "Mesure 29 — Cloisonnement des privilèges",
+        "profil": "both", "criticite": "majeur",
+    },
+    {
+        "id": "smbv1_desactive",
+        "libelle": "SMBv1 désactivé (protocole obsolète)",
+        "categorie": "Configuration",
+        "anssi": "Mesure 35 — Limiter les composants obsolètes",
+        "profil": "both", "criticite": "critique",
+    },
+    {
+        "id": "partages_maitrises",
+        "libelle": "Partages réseau exposés maîtrisés",
+        "categorie": "Configuration",
+        "anssi": "Mesure 40 — Maîtriser les flux réseau",
+        "profil": "both", "criticite": "mineur",
+    },
+
+    # ---------------- Système ----------------
+    {
+        "id": "espace_disque",
+        "libelle": "Espace disque système suffisant (> 10%)",
+        "categorie": "Système",
+        "anssi": "Bonne pratique d'exploitation",
+        "profil": "both", "criticite": "mineur",
+    },
+    {
+        "id": "uptime_raisonnable",
+        "libelle": "Redémarrage récent (uptime < 30 jours)",
+        "categorie": "Système",
+        "anssi": "Mesure 34 — Application effective des MAJ",
+        "profil": "both", "criticite": "mineur",
+    },
+
+    # ---------------- Spécifique serveurs ----------------
+    {
+        "id": "serveur_roles_documentes",
+        "libelle": "Rôles serveur identifiés (AD/DNS/DHCP/fichiers…)",
+        "categorie": "Serveur",
+        "anssi": "Mesure 2 — Cartographier le SI",
+        "profil": "serveur", "criticite": "mineur",
+    },
+    {
+        "id": "serveur_sauvegarde",
+        "libelle": "Sauvegarde du serveur en place",
+        "categorie": "Serveur",
+        "anssi": "Mesure 37 — Sauvegarde des composants critiques",
+        "profil": "serveur", "criticite": "critique",
+    },
+]
+
+
+def controle_by_id(cid):
+    for c in REFERENTIEL:
+        if c["id"] == cid:
+            return c
+    return None
+
+
+def controles_pour_profil(profil):
+    """Renvoie les contrôles applicables à un profil ('poste' ou 'serveur')."""
+    return [c for c in REFERENTIEL
+            if c["profil"] == "both" or c["profil"] == profil]
+
+
+def calcul_score(resultats):
+    """
+    Calcule un score de conformité (0-100) à partir d'une liste de résultats.
+    resultats : liste de dicts {id, statut}.
+    Les statuts 'indetermine' et 'na' sont exclus du calcul.
+    Score = points obtenus / points possibles, pondéré par criticité.
+    Un 'attention' compte pour la moitié des points, 'critique'/'ok' tout ou rien.
+    """
+    points_obtenus = 0.0
+    points_possibles = 0.0
+    details = {"ok": 0, "attention": 0, "critique": 0, "indetermine": 0, "na": 0}
+
+    for r in resultats:
+        statut = r.get("statut", "indetermine")
+        details[statut] = details.get(statut, 0) + 1
+        if statut in ("indetermine", "na"):
+            continue
+        ctrl = controle_by_id(r.get("id"))
+        if not ctrl:
+            continue
+        poids = POIDS_CRITICITE.get(ctrl["criticite"], 1)
+        points_possibles += poids
+        if statut == "ok":
+            points_obtenus += poids
+        elif statut == "attention":
+            points_obtenus += poids * 0.5
+        # "critique" => 0 point
+
+    score = round((points_obtenus / points_possibles) * 100) if points_possibles else None
+    return {
+        "score": score,                  # None si rien d'évaluable
+        "details": details,
+        "nb_critiques": details["critique"],
+        "nb_attention": details["attention"],
+    }
+
+
+def niveau_global(score, nb_critiques):
+    """Verdict global lisible à partir du score et du nb de points critiques."""
+    if score is None:
+        return "indetermine"
+    if nb_critiques > 0:
+        return "non_conforme"
+    if score >= 85:
+        return "conforme"
+    if score >= 60:
+        return "partiel"
+    return "non_conforme"
