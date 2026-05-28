@@ -50,6 +50,8 @@ main { flex: 1; }
 .btn-danger:hover { background: #bb2d3b; color: white; }
 .btn-export { background: #198754; border-color: #198754; color: white; }
 .btn-export:hover { background: #146c43; color: white; }
+.btn-import { background: #6610f2; border-color: #6610f2; color: white; }
+.btn-import:hover { background: #520dc2; color: white; }
 
 /* =================== TABLEAUX =================== */
 .table { width: 100%; border-collapse: collapse; background: white;

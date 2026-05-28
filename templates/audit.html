@@ -24,6 +24,9 @@
         <a href="{{ url_for('schema_view', audit_id=audit.id) }}"
            target="_blank"
            class="btn btn-sm btn-export">⛶ Schéma plein écran</a>
+        <button id="btn_import" class="btn btn-sm btn-import"
+                title="Importer un scan réseau ou un inventaire poste (JSON)">⬇ Importer</button>
+        <input type="file" id="import_file" accept=".json,application/json" hidden>
       </div>
     </div>
 

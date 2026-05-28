@@ -366,6 +366,33 @@ def create_app():
         return redirect(url_for("index"))
 
     # ------------------------------------------------------------------------
+    # IMPORT (scanner réseau / agent poste -> équipements)
+    # ------------------------------------------------------------------------
+    @app.route("/api/audit/<int:audit_id>/import", methods=["POST"])
+    def api_import(audit_id):
+        from import_data import importer_payload
+        audit = Audit.query.get_or_404(audit_id)
+        # Accepte soit un fichier uploadé (champ "fichier"), soit du JSON brut
+        payload = None
+        if "fichier" in request.files:
+            f = request.files["fichier"]
+            try:
+                import json
+                payload = json.load(f.stream)
+            except Exception as e:
+                return jsonify({"error": f"JSON invalide : {e}"}), 400
+        else:
+            payload = request.get_json(silent=True)
+        if not payload or "equipements" not in payload:
+            return jsonify({"error": "Format invalide : clé 'equipements' attendue"}), 400
+        try:
+            stats = importer_payload(audit, payload, db, Equipement)
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": f"Échec import : {e}"}), 500
+        return jsonify({"ok": True, "stats": stats})
+
+    # ------------------------------------------------------------------------
     # EXPORTS
     # ------------------------------------------------------------------------
     @app.route("/audit/<int:audit_id>/export/pdf")

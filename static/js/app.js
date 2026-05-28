@@ -792,6 +792,40 @@ window.AppLogic = (function () {
     refreshLiaisonSelectors();
   });
 
+  // -------------------- Import (scanner réseau / agent poste) --------------------
+  const btnImport = document.getElementById("btn_import");
+  const importFile = document.getElementById("import_file");
+  if (btnImport && importFile) {
+    btnImport.addEventListener("click", () => importFile.click());
+    importFile.addEventListener("change", () => {
+      const file = importFile.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append("fichier", file);
+      flagSaving();
+      fetch(`/api/audit/${AUDIT_ID}/import`, { method: "POST", body: fd })
+        .then(r => r.json())
+        .then(res => {
+          importFile.value = "";  // reset pour réimport du même fichier
+          if (res.error) {
+            flagSaved(false);
+            alert("Import échoué : " + res.error);
+            return;
+          }
+          flagSaved(true);
+          const s = res.stats;
+          alert(`Import terminé :\n` +
+                `• ${s.crees} équipement(s) créé(s)\n` +
+                `• ${s.maj} mis à jour\n` +
+                `• ${s.ignores} déjà à jour (ignorés)\n` +
+                `• ${s.total} au total dans le fichier`);
+          // Recharge tout le schéma + les listes
+          if (window.SchemaApp) window.SchemaApp.load();
+        })
+        .catch(err => { flagSaved(false); alert("Erreur réseau : " + err); });
+    });
+  }
+
   // Chargement initial des sites + apps + backups + msgs
   fetch(`/api/audit/${AUDIT_ID}`).then(r => r.json()).then(data => {
     sites = data.sites || [];
