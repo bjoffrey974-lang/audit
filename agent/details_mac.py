@@ -435,8 +435,12 @@ COLLECTORS = [
 ]
 
 
-def collect_all(progress_cb=None):
-    """Lance toutes les collectes. Retourne le dict 'details'."""
+def collect_all(profil=None, progress_cb=None):
+    """
+    Lance toutes les collectes. Retourne le dict 'details'.
+    Le paramètre 'profil' est accepté pour cohérence d'API avec la version
+    Windows, mais ignoré ici (pas de notion serveur sur macOS).
+    """
     total = len(COLLECTORS)
     details = {}
     for i, (key, label, fn) in enumerate(COLLECTORS, 1):

@@ -231,7 +231,14 @@ class AgentApp:
 
             # --- Phase 1 : contrôles de conformité (17, rapide) ---
             n_checks = len(CHECKS)
-            n_details = len(COLLECTORS)
+            # Nombre de collectes applicables au profil :
+            # Sur Windows, COLLECTORS contient un 4e champ 'scope' (both/serveur).
+            # Sur Mac, l'ancien format à 3 colonnes (pas de notion de profil serveur).
+            def _is_applicable(c):
+                if len(c) >= 4:
+                    return c[3] == "both" or c[3] == profil
+                return True
+            n_details = sum(1 for c in COLLECTORS if _is_applicable(c))
             total_steps = n_checks + n_details
 
             def progress_checks(done, total, cid):
@@ -248,7 +255,7 @@ class AgentApp:
                 self.root.after(0, self._progress, pct,
                                 f"Détails : {label[:30]}")
 
-            details = collect_details(progress_cb=progress_details)
+            details = collect_details(profil=profil, progress_cb=progress_details)
 
             # Calcul du score local
             score, niveau, nb_crit = self._score(resultats)

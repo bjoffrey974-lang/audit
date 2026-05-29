@@ -395,6 +395,45 @@ Select-Object @{{N='date';E={{$_.TimeCreated.ToString('yyyy-MM-dd HH:mm')}}}},
 
 
 # ---------------------------------------------------------------------------
+# Rôles et fonctionnalités serveur (Windows Server uniquement)
+# ---------------------------------------------------------------------------
+
+def collect_server_roles():
+    """
+    Liste des RÔLES Windows Server installés (au sens du Gestionnaire de serveur).
+    Filtre uniquement FeatureType = 'Role' et Installed = True.
+    Ne tourne que sur un Windows Server (Get-WindowsFeature absent ailleurs).
+    """
+    cmd = """
+Get-WindowsFeature -ErrorAction SilentlyContinue |
+Where-Object { $_.Installed -and $_.FeatureType -eq 'Role' } |
+Select-Object @{N='nom';E={$_.Name}},
+              @{N='libelle';E={$_.DisplayName}},
+              @{N='chemin';E={$_.Path}} |
+Sort-Object libelle
+"""
+    data, ok = _ps_json(cmd, timeout=60)
+    return data or []
+
+
+def collect_server_features():
+    """
+    Liste des FONCTIONNALITÉS Windows Server installées (FeatureType = 'Feature').
+    Distinctes des rôles : ce sont les composants annexes (GPMC, .NET, BITS, etc.).
+    """
+    cmd = """
+Get-WindowsFeature -ErrorAction SilentlyContinue |
+Where-Object { $_.Installed -and $_.FeatureType -eq 'Feature' } |
+Select-Object @{N='nom';E={$_.Name}},
+              @{N='libelle';E={$_.DisplayName}},
+              @{N='chemin';E={$_.Path}} |
+Sort-Object libelle
+"""
+    data, ok = _ps_json(cmd, timeout=60)
+    return data or []
+
+
+# ---------------------------------------------------------------------------
 # Volumes / partitions
 # ---------------------------------------------------------------------------
 
@@ -442,31 +481,40 @@ ForEach-Object {
 # Orchestration : collecte tout
 # ---------------------------------------------------------------------------
 
-# Liste des collecteurs avec libellé pour la GUI
+# Liste des collecteurs avec libellé pour la GUI.
+# Le champ 'profil' indique sur quels profils il s'exécute :
+#   - 'both'    : poste et serveur
+#   - 'serveur' : serveur uniquement (ex: rôles Windows Server)
 COLLECTORS = [
-    ("applications",     "Applications installées",       collect_applications),
-    ("updates",          "Mises à jour Windows",          collect_updates),
-    ("users",            "Comptes utilisateurs locaux",   collect_users),
-    ("services",         "Services Windows",              collect_services),
-    ("drivers",          "Pilotes",                       collect_drivers),
-    ("scheduled_tasks",  "Tâches planifiées (non MS)",    collect_scheduled_tasks),
-    ("firewall_rules",   "Règles pare-feu actives",       collect_firewall_rules),
-    ("sessions",         "Sessions ouvertes",             collect_sessions),
-    ("volumes",          "Volumes / partitions",          collect_volumes),
-    ("network",          "Configuration réseau",          collect_network),
-    ("auth_failures",    "Échecs d'authentification (30j)", collect_auth_failures),
+    ("applications",     "Applications installées",         collect_applications,     "both"),
+    ("updates",          "Mises à jour Windows",            collect_updates,          "both"),
+    ("users",            "Comptes utilisateurs locaux",     collect_users,            "both"),
+    ("services",         "Services Windows",                collect_services,         "both"),
+    ("drivers",          "Pilotes",                         collect_drivers,          "both"),
+    ("scheduled_tasks",  "Tâches planifiées (non MS)",      collect_scheduled_tasks,  "both"),
+    ("firewall_rules",   "Règles pare-feu actives",         collect_firewall_rules,   "both"),
+    ("sessions",         "Sessions ouvertes",               collect_sessions,         "both"),
+    ("server_roles",     "Rôles serveur installés",         collect_server_roles,     "serveur"),
+    ("server_features",  "Fonctionnalités serveur",         collect_server_features,  "serveur"),
+    ("volumes",          "Volumes / partitions",            collect_volumes,          "both"),
+    ("network",          "Configuration réseau",            collect_network,          "both"),
+    ("auth_failures",    "Échecs d'authentification (30j)", collect_auth_failures,    "both"),
 ]
 
 
-def collect_all(progress_cb=None):
+def collect_all(profil="poste", progress_cb=None):
     """
-    Lance toutes les collectes. progress_cb(i, total, label) optionnel.
+    Lance les collectes applicables au profil donné (poste/serveur).
+    progress_cb(i, total, label) optionnel.
     Retourne un dict { 'applications': [...], 'updates': [...], ... }
     + une section dérivée 'remote_access' croisée sur les applications.
     """
-    total = len(COLLECTORS)
+    # Filtrer les collecteurs applicables au profil
+    applicables = [c for c in COLLECTORS
+                   if c[3] == "both" or c[3] == profil]
+    total = len(applicables)
     details = {}
-    for i, (key, label, fn) in enumerate(COLLECTORS, 1):
+    for i, (key, label, fn, _scope) in enumerate(applicables, 1):
         if progress_cb:
             progress_cb(i, total, label)
         try:
@@ -499,6 +547,8 @@ def count_summary(details):
         "scheduled_tasks": len(details.get("scheduled_tasks", [])),
         "firewall_rules": len(details.get("firewall_rules", [])),
         "sessions": len(details.get("sessions", [])),
+        "server_roles": len(details.get("server_roles", [])),
+        "server_features": len(details.get("server_features", [])),
         "volumes": len(details.get("volumes", [])),
         "network": len(details.get("network", [])),
         "auth_failures": len(details.get("auth_failures", [])),

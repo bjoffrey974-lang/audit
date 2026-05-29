@@ -532,6 +532,16 @@ def generate_pdf(audit):
                     f"<b>🖥 {conf.machine or 'Machine'}</b> "
                     f"({conf.profil or '?'})", normal))
 
+                # Résumé des rôles serveur (ligne synthétique pour le client)
+                roles = det.get("server_roles") or []
+                if roles:
+                    libelles = [r.get("libelle") or r.get("nom", "")
+                                for r in roles if (r.get("libelle") or r.get("nom"))]
+                    if libelles:
+                        story.append(Paragraph(
+                            "<b>Rôles serveur installés :</b> "
+                            + ", ".join(libelles), normal))
+
                 # Alerte : outils d'accès distant
                 remote = det.get("remote_access") or []
                 if remote:
