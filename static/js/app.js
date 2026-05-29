@@ -177,9 +177,13 @@ window.AppLogic = (function () {
     document.getElementById("modal_eq").hidden = false;
   }
 
+  // Affiche le sélecteur "Hébergé sur" pour tout ce qui peut être virtualisé :
+  // un poste (Windows en VM), un serveur physique (peut tourner en VM aussi),
+  // ou explicitement un serveur virtuel.
+  const TYPES_VIRTUALISABLES = ["poste", "serveur_physique", "serveur_virtuel"];
   function toggleParentField(type) {
     const wrap = document.getElementById("m_eq_parent_wrap");
-    if (wrap) wrap.style.display = type === "serveur_virtuel" ? "" : "none";
+    if (wrap) wrap.style.display = TYPES_VIRTUALISABLES.includes(type) ? "" : "none";
   }
 
   function refreshParentSelect(eq) {
@@ -212,8 +216,10 @@ window.AppLogic = (function () {
       if (f === "site_id" || f === "nb_vm") v = v === "" ? null : parseInt(v, 10);
       payload[f] = v;
     });
+    // parent_id : pour tout équipement virtualisable (poste, serveur physique, VM)
     const parentEl = document.getElementById("m_eq_parent_id");
-    payload.parent_id = (payload.type === "serveur_virtuel" && parentEl && parentEl.value)
+    payload.parent_id = (TYPES_VIRTUALISABLES.includes(payload.type)
+                         && parentEl && parentEl.value)
       ? parseInt(parentEl.value, 10) : null;
     fetch(`/api/equipement/${currentEqId}`, {
       method: "PUT",
