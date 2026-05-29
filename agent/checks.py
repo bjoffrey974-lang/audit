@@ -30,21 +30,44 @@ def ps(command, timeout=20):
     """
     Exécute une commande PowerShell et retourne (stdout, ok).
     ok=False si erreur d'exécution / timeout / hors Windows.
+
+    Lance PowerShell SANS faire clignoter de fenêtre console : utile dans
+    l'agent packagé en .exe --windowed qui appelle PS des dizaines de fois.
+    Sur Windows, on combine 2 mécanismes (l'un seul ne suffit pas toujours
+    selon les versions) :
+      - flag CREATE_NO_WINDOW pour le subprocess
+      - STARTUPINFO avec STARTF_USESHOWWINDOW = HIDDEN
     """
     if not IS_WINDOWS:
         return ("", False)
     try:
         # Forcer PowerShell à sortir en UTF-8 (sinon il utilise CP850/CP1252
         # par défaut sur Windows FR, ce qui casse les accents : "géré" -> "g‚r‚").
-        # On préfixe la commande par la config encodage, puis on lit en UTF-8.
         prefix = (
             "$OutputEncoding = [Console]::OutputEncoding = "
             "[System.Text.Encoding]::UTF8; "
         )
         full = ["powershell", "-NoProfile", "-NonInteractive",
                 "-ExecutionPolicy", "Bypass", "-Command", prefix + command]
-        r = subprocess.run(full, capture_output=True,
-                           timeout=timeout, encoding="utf-8", errors="replace")
+
+        # Empêcher l'apparition d'une fenêtre console à chaque appel.
+        # CREATE_NO_WINDOW = 0x08000000. STARTUPINFO en bonus pour anciennes
+        # versions Windows où le flag seul ne suffit pas.
+        kwargs = {"capture_output": True, "timeout": timeout,
+                  "encoding": "utf-8", "errors": "replace"}
+        try:
+            CREATE_NO_WINDOW = 0x08000000
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = subprocess.SW_HIDE
+            kwargs["creationflags"] = CREATE_NO_WINDOW
+            kwargs["startupinfo"] = si
+        except AttributeError:
+            # Non-Windows (dev) : les attributs subprocess.STARTUPINFO/SW_HIDE
+            # n'existent pas — on continue sans ces options.
+            pass
+
+        r = subprocess.run(full, **kwargs)
         if r.returncode != 0:
             return ((r.stdout or "").strip() or (r.stderr or "").strip(), False)
         return ((r.stdout or "").strip(), True)
