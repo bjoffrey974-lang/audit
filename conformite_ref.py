@@ -170,9 +170,47 @@ def controle_by_id(cid):
 
 
 def controles_pour_profil(profil):
-    """Renvoie les contrôles applicables à un profil ('poste' ou 'serveur')."""
+    """
+    Renvoie les contrôles applicables à un profil donné.
+    Profils reconnus :
+      - 'poste'   : poste Windows
+      - 'serveur' : serveur Windows
+      - 'mac'     : poste macOS (utilise les contrôles 'poste' adaptés)
+    """
+    if profil == "mac":
+        # Sur Mac, tous les contrôles 'both' + 'poste' s'appliquent.
+        # Les contrôles serveur-spécifiques sont exclus (sauf si Time Machine
+        # remonte une info — l'agent Mac le décide).
+        return [c for c in REFERENTIEL
+                if c["profil"] in ("both", "poste")]
     return [c for c in REFERENTIEL
             if c["profil"] == "both" or c["profil"] == profil]
+
+
+# Libellés alternatifs par profil pour adapter l'affichage (le contrôle reste
+# le même côté logique, seul l'affichage change). Permet de dire "FileVault"
+# sur Mac et "BitLocker" sur Windows pour le même id 'chiffrement_disque'.
+LIBELLES_PAR_PROFIL = {
+    "mac": {
+        "firewall_actif": "Pare-feu macOS (Application Firewall) activé",
+        "chiffrement_disque": "Chiffrement du disque (FileVault) actif",
+        "uac_actif": "SIP + Gatekeeper actifs",
+        "rdp_maitrise": "Screen Sharing désactivé ou maîtrisé",
+        "smbv1_desactive": "SMBv1 (N/A sur macOS moderne)",
+        "admin_natif_desactive": "Compte root désactivé",
+        "serveur_sauvegarde": "Time Machine configurée",
+    },
+}
+
+
+def libelle_pour(cid, profil=None):
+    """Renvoie le libellé adapté au profil (ou le libellé par défaut)."""
+    if profil and profil in LIBELLES_PAR_PROFIL:
+        lbl = LIBELLES_PAR_PROFIL[profil].get(cid)
+        if lbl:
+            return lbl
+    ctrl = controle_by_id(cid)
+    return ctrl["libelle"] if ctrl else cid
 
 
 def calcul_score(resultats):

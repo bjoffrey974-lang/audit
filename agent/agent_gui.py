@@ -21,14 +21,31 @@ from datetime import datetime
 
 try:
     from elevation import is_admin, ensure_admin
-    from checks import detect_profil, run_checks, CHECKS
-    from collect import collect_machine
-    from details import collect_all as collect_details, count_summary, COLLECTORS
+    # Détection de l'OS pour basculer sur les bons modules de collecte/contrôles
+    import platform as _plat
+    _SYSTEM = _plat.system()
+    if _SYSTEM == "Darwin":
+        # macOS : on utilise les modules dédiés Mac
+        from checks_mac import detect_profil, run_checks, CHECKS
+        from collect_mac import collect_machine
+        from details_mac import collect_all as collect_details, count_summary, COLLECTORS
+    else:
+        # Windows (et Linux pour les tests) : modules d'origine
+        from checks import detect_profil, run_checks, CHECKS
+        from collect import collect_machine
+        from details import collect_all as collect_details, count_summary, COLLECTORS
 except ImportError:
     from .elevation import is_admin, ensure_admin
-    from .checks import detect_profil, run_checks, CHECKS
-    from .collect import collect_machine
-    from .details import collect_all as collect_details, count_summary, COLLECTORS
+    import platform as _plat
+    _SYSTEM = _plat.system()
+    if _SYSTEM == "Darwin":
+        from .checks_mac import detect_profil, run_checks, CHECKS
+        from .collect_mac import collect_machine
+        from .details_mac import collect_all as collect_details, count_summary, COLLECTORS
+    else:
+        from .checks import detect_profil, run_checks, CHECKS
+        from .collect import collect_machine
+        from .details import collect_all as collect_details, count_summary, COLLECTORS
 
 
 # Libellés lisibles des contrôles (repris du référentiel, dupliqués ici pour

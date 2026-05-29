@@ -1,12 +1,19 @@
 """
-Gestion de l'élévation administrateur (Windows).
+Gestion de l'élévation administrateur (multi-OS).
 
-- is_admin()        : True si le process tourne avec les droits admin.
-- ensure_admin()    : tente de relancer le programme en admin via UAC.
-                      Si l'élévation échoue ou est refusée, retourne False
-                      (l'agent continue en mode dégradé, contrôles admin -> indéterminé).
+- is_admin()        : True si le process tourne avec les droits administrateur.
+                      Windows : via ctypes IsUserAnAdmin().
+                      macOS / Linux : via os.geteuid() == 0 (root via sudo).
+- ensure_admin()    : sur Windows, tente de relancer le programme en admin
+                      via UAC. Sur macOS/Linux, ne fait rien (l'utilisateur
+                      doit lancer avec sudo si besoin des droits root).
+                      Si l'élévation échoue ou est refusée (Windows) OU si on
+                      tourne sans sudo (Mac/Linux), retourne (False, False) →
+                      l'agent continue en mode dégradé (contrôles admin →
+                      indéterminé).
 
-Comportement volontaire : on ne FORCE jamais. On tente, et on dégrade proprement.
+Comportement volontaire : on ne FORCE jamais. On tente quand on peut, et on
+dégrade proprement sinon.
 """
 import sys
 import os

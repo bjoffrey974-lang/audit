@@ -1,0 +1,75 @@
+CONSTRUCTION DE L'AGENT MACOS (.app)
+====================================
+
+L'agent Mac fonctionne SOUS MACOS uniquement (il lit le système via
+system_profiler, dscl, launchctl, etc.). Le développement peut se faire
+sur n'importe quel OS, mais le test et le build se font sous macOS natif.
+
+PRÉREQUIS
+---------
+- macOS 12 (Monterey) ou ultérieur recommandé (testé Sonoma/Sequoia visé)
+- Python 3.10+ installé (Homebrew recommandé : `brew install python@3.12`)
+  Le Python système Apple (/usr/bin/python3) marche aussi mais Tkinter
+  peut être bancal selon la version.
+
+TEST EN MODE DEV (sans build)
+-----------------------------
+Dans Terminal, depuis le dossier agent/ :
+
+    python3 agent_gui.py
+
+Pour les contrôles qui demandent les droits root (BitLocker équivalent
+= FileVault info, lecture détaillée des comptes, sharing, log show...) :
+
+    sudo python3 agent_gui.py
+
+Sans sudo, ces contrôles passent en "indéterminé" (mode dégradé).
+
+BUILD .APP AVEC PYINSTALLER
+---------------------------
+
+    pip3 install pyinstaller
+    pyinstaller --windowed --name AuditAgent agent_gui.py
+
+Cela produit dist/AuditAgent.app — bundle macOS standard.
+
+DROITS ET SIGNATURE
+-------------------
+1. PAS DE SIGNATURE (test interne) :
+   Le client devra faire clic-droit → Ouvrir lors du premier lancement,
+   sinon Gatekeeper bloque avec "Le développeur n'a pas pu être vérifié".
+   Acceptable pour usage technicien (toi) mais pas pour distribution large.
+
+2. SIGNATURE DEVELOPER ID (recommandée si distribution) :
+   - Compte Apple Developer : 99 €/an
+   - Créer un certificat "Developer ID Application"
+   - Signer :
+     codesign --deep --sign "Developer ID Application: Ton Nom" \
+              --options runtime dist/AuditAgent.app
+   - Notarization (validation Apple) :
+     xcrun notarytool submit dist/AuditAgent.app.zip \
+           --apple-id ton@email --team-id XXX --wait
+     puis stapler l'attestation :
+     xcrun stapler staple dist/AuditAgent.app
+
+ARCHITECTURE (Apple Silicon vs Intel)
+-------------------------------------
+PyInstaller produit par défaut un binaire pour l'architecture courante.
+- Sur un Mac M1/M2/M3/M4 : binaire ARM64 (ne tournera PAS sur Intel)
+- Sur un Mac Intel        : binaire x86_64 (tournera sur M1/M2/M3/M4 via Rosetta)
+
+Pour un binaire universel (les deux archs dans un seul .app), il faut
+construire sur Apple Silicon avec une version de Python universelle, puis :
+
+    pyinstaller --windowed --name AuditAgent --target-architecture universal2 \
+                agent_gui.py
+
+(Nécessite que TOUTES les dépendances soient universelles, ce qui est le
+cas avec notre code Python pur.)
+
+CONSEIL POUR DÉBUTER
+--------------------
+- Build sans signature, sans notarization, sans universal2.
+- Tester en local sur ton Mac d'emprunt.
+- Une fois la chaîne validée et l'agent stable terrain, envisager la
+  signature et la distribution propre.
