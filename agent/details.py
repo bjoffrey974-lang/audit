@@ -28,8 +28,14 @@ def _ps_json(command, timeout=60):
     Exécute une commande PowerShell censée renvoyer du JSON
     (typiquement via ConvertTo-Json).
     Retourne (data, ok) où data est l'objet parsé ou None.
+
+    La commande est enveloppée dans un script block & { ... } pour que le pipe
+    final '| ConvertTo-Json' s'applique au RÉSULTAT du bloc entier, même si
+    la commande utilise plusieurs lignes. Sans ça, PowerShell traite le
+    '| ConvertTo-Json' sur la nouvelle ligne comme une commande séparée et
+    plante silencieusement (bug observé sur Windows 11 25H2).
     """
-    full = f"{command} | ConvertTo-Json -Depth 4 -Compress"
+    full = f"& {{\n{command}\n}} | ConvertTo-Json -Depth 4 -Compress"
     out, ok = checks.ps(full, timeout=timeout)
     if not ok or not out.strip():
         return (None, False)
