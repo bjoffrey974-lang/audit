@@ -97,8 +97,37 @@ $apps | Sort-Object nom, version -Unique
 # ---------------------------------------------------------------------------
 
 def collect_updates():
-    """Liste des KB installées avec date."""
+    """
+    Liste des mises à jour Windows installées.
+
+    Combine 2 sources :
+    - Update Session COM (Microsoft.Update.Session) : couvre les MAJ modernes
+      (cumulatives, drivers, Defender). Lent mais complet.
+    - Get-HotFix : fallback / complément pour les hotfixes traditionnels.
+    """
+    # Source 1 : Update Session COM (la plus complète)
     cmd = """
+$session = New-Object -ComObject Microsoft.Update.Session
+$searcher = $session.CreateUpdateSearcher()
+$count = $searcher.GetTotalHistoryCount()
+if ($count -gt 0) {
+    $history = $searcher.QueryHistory(0, $count)
+    $history | Where-Object { $_.ResultCode -eq 2 -and $_.Title } |
+    ForEach-Object {
+        [PSCustomObject]@{
+            kb = if ($_.Title -match 'KB\\d+') { $matches[0] } else { '' }
+            type = $_.Title
+            installe_par = ''
+            date_install = if ($_.Date) { $_.Date.ToString('yyyy-MM-dd') } else { '' }
+        }
+    } | Sort-Object date_install -Descending
+}
+"""
+    data, ok = _ps_json(cmd, timeout=60)
+    if ok and data and len(data) > 5:
+        return data
+    # Fallback : Get-HotFix (limité aux hotfixes traditionnels)
+    cmd2 = """
 Get-HotFix -ErrorAction SilentlyContinue |
 Select-Object @{N='kb';E={$_.HotFixID}},
               @{N='type';E={$_.Description}},
@@ -106,7 +135,7 @@ Select-Object @{N='kb';E={$_.HotFixID}},
               @{N='date_install';E={if($_.InstalledOn){$_.InstalledOn.ToString('yyyy-MM-dd')}else{''}}} |
 Sort-Object date_install -Descending
 """
-    data, ok = _ps_json(cmd)
+    data, ok = _ps_json(cmd2)
     return data or []
 
 
@@ -153,19 +182,39 @@ Select-Object @{N='nom';E={$_.Name}},
 # ---------------------------------------------------------------------------
 
 def collect_services():
-    """Services Windows : nom, état, type de démarrage, compte."""
-    cmd = """
-Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+    """
+    Services Windows. Utilise Get-Service (rapide) + enrichissement par CIM
+    pour le type de démarrage et le compte. Si CIM trop lent, on garde
+    juste Get-Service.
+    """
+    # Étape 1 : Get-Service seul (très rapide, donne nom + état)
+    cmd_fast = """
+Get-Service -ErrorAction SilentlyContinue |
 Select-Object @{N='nom';E={$_.Name}},
               @{N='nom_affiche';E={$_.DisplayName}},
-              @{N='etat';E={$_.State}},
-              @{N='demarrage';E={$_.StartMode}},
-              @{N='compte';E={$_.StartName}},
-              @{N='chemin';E={$_.PathName}} |
-Sort-Object nom
+              @{N='etat';E={$_.Status.ToString()}},
+              @{N='demarrage';E={$_.StartType.ToString()}}
 """
-    data, ok = _ps_json(cmd, timeout=90)
-    return data or []
+    data, ok = _ps_json(cmd_fast, timeout=60)
+    if not ok:
+        return []
+    services = data or []
+
+    # Étape 2 : enrichir avec le compte d'exécution (via CIM, plus lent)
+    cmd_accounts = """
+Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+Select-Object @{N='nom';E={$_.Name}}, @{N='compte';E={$_.StartName}}
+"""
+    accounts_data, ok2 = _ps_json(cmd_accounts, timeout=120)
+    if ok2 and accounts_data:
+        # Indexer par nom puis enrichir
+        accounts = {a.get("nom"): a.get("compte") for a in accounts_data}
+        for s in services:
+            s["compte"] = accounts.get(s.get("nom"), "")
+    else:
+        for s in services:
+            s["compte"] = ""
+    return services
 
 
 # ---------------------------------------------------------------------------
@@ -221,18 +270,19 @@ ForEach-Object {
 
 def collect_firewall_rules():
     """
-    Règles pare-feu actives qui AUTORISENT du trafic (les plus pertinentes
-    en audit). On filtre les règles désactivées et les blocs.
+    Règles pare-feu actives qui autorisent du trafic ENTRANT.
+    On limite aux Inbound/Allow (les plus pertinentes en audit) — l'outbound
+    est massif et beaucoup moins informatif.
     """
     cmd = """
 Get-NetFirewallRule -ErrorAction SilentlyContinue |
-Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' } |
+Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' -and $_.Direction -eq 'Inbound' } |
 Select-Object @{N='nom';E={$_.DisplayName}},
               @{N='direction';E={$_.Direction.ToString()}},
               @{N='profil';E={$_.Profile.ToString()}},
               @{N='action';E={$_.Action.ToString()}}
 """
-    data, ok = _ps_json(cmd, timeout=60)
+    data, ok = _ps_json(cmd, timeout=120)
     return data or []
 
 
@@ -241,24 +291,56 @@ Select-Object @{N='nom';E={$_.DisplayName}},
 # ---------------------------------------------------------------------------
 
 def collect_sessions():
-    """Sessions ouvertes (qui est connecté)."""
-    cmd = """
-$out = quser 2>$null
+    """
+    Sessions / utilisateurs connectés.
+    quser n'est pas disponible sur Win11 Famille → fallback CIM.
+    """
+    # Méthode 1 : quser (Win10/11 Pro+, Server)
+    cmd1 = r"""
+$result = $null
+try { $out = quser 2>$null } catch { $out = $null }
 if ($out) {
     $lines = $out -split "`n" | Select-Object -Skip 1
-    foreach ($l in $lines) {
-        $cols = $l -split '\\s+' | Where-Object { $_ }
+    $result = foreach ($l in $lines) {
+        $cols = $l -split '\s+' | Where-Object { $_ }
         if ($cols.Count -ge 3) {
             [PSCustomObject]@{
                 utilisateur = $cols[0]
                 etat = $cols[2]
                 session = $cols[1]
+                source = 'quser'
             }
         }
     }
 }
+$result
 """
-    data, ok = _ps_json(cmd)
+    data, ok = _ps_json(cmd1, timeout=15)
+    if ok and data:
+        return data
+    # Méthode 2 : fallback CIM (Win11 Famille, sans quser)
+    cmd2 = """
+Get-CimInstance Win32_LogonSession -ErrorAction SilentlyContinue |
+Where-Object { $_.LogonType -in 2,10,11 } |
+ForEach-Object {
+    $sid = $_.LogonId
+    $user = Get-CimInstance Win32_LoggedOnUser -ErrorAction SilentlyContinue |
+        Where-Object { $_.Dependent.LogonId -eq $sid } |
+        Select-Object -First 1
+    if ($user) {
+        $name = $user.Antecedent.Name
+        $domain = $user.Antecedent.Domain
+        $logonTypes = @{2='Interactive'; 10='RemoteInteractive'; 11='CachedInteractive'}
+        [PSCustomObject]@{
+            utilisateur = "$domain\\$name"
+            etat = 'Active'
+            session = $logonTypes[[int]$_.LogonType]
+            source = 'CIM'
+        }
+    }
+}
+"""
+    data, ok = _ps_json(cmd2, timeout=30)
     return data or []
 
 

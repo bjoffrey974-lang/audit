@@ -34,13 +34,20 @@ def ps(command, timeout=20):
     if not IS_WINDOWS:
         return ("", False)
     try:
+        # Forcer PowerShell à sortir en UTF-8 (sinon il utilise CP850/CP1252
+        # par défaut sur Windows FR, ce qui casse les accents : "géré" -> "g‚r‚").
+        # On préfixe la commande par la config encodage, puis on lit en UTF-8.
+        prefix = (
+            "$OutputEncoding = [Console]::OutputEncoding = "
+            "[System.Text.Encoding]::UTF8; "
+        )
         full = ["powershell", "-NoProfile", "-NonInteractive",
-                "-ExecutionPolicy", "Bypass", "-Command", command]
-        r = subprocess.run(full, capture_output=True, text=True,
-                           timeout=timeout)
+                "-ExecutionPolicy", "Bypass", "-Command", prefix + command]
+        r = subprocess.run(full, capture_output=True,
+                           timeout=timeout, encoding="utf-8", errors="replace")
         if r.returncode != 0:
-            return (r.stdout.strip() or r.stderr.strip(), False)
-        return (r.stdout.strip(), True)
+            return ((r.stdout or "").strip() or (r.stderr or "").strip(), False)
+        return ((r.stdout or "").strip(), True)
     except Exception:
         return ("", False)
 
