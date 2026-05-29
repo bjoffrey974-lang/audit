@@ -274,6 +274,9 @@ class Conformite(db.Model):
     # [{"id":"firewall_actif","statut":"ok","detail":"..."}, ...]
     resultats_json = db.Column(db.Text)
 
+    # Collecte détaillée "winaudit-like" (depuis agent v1.1+)
+    details_json = db.Column(db.Text)
+
     audit = relationship("Audit", back_populates="conformites")
     equipement = relationship("Equipement", foreign_keys=[equipement_id])
 # ============================================================================

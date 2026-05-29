@@ -416,6 +416,17 @@ def create_app():
                 resultats = _json.loads(c.resultats_json) if c.resultats_json else []
             except Exception:
                 resultats = []
+            # Résumé compact des détails (compteurs uniquement)
+            details_counts = None
+            has_details = False
+            if getattr(c, "details_json", None):
+                has_details = True
+                try:
+                    det = _json.loads(c.details_json)
+                    details_counts = {k: len(v) for k, v in det.items()
+                                      if isinstance(v, list)}
+                except Exception:
+                    details_counts = None
             out.append({
                 "id": c.id, "machine": c.machine, "profil": c.profil,
                 "date_collecte": c.date_collecte, "outil": c.outil,
@@ -423,8 +434,61 @@ def create_app():
                 "nb_critiques": c.nb_critiques,
                 "equipement_id": c.equipement_id,
                 "resultats": resultats,
+                "details_counts": details_counts,
+                "has_details": has_details,
             })
         return jsonify(out)
+
+    @app.route("/api/conformite/<int:conf_id>/details", methods=["GET"])
+    def api_conformite_details(conf_id):
+        """Renvoie le bloc 'details' complet d'un bilan de conformité."""
+        import json as _json
+        c = Conformite.query.get_or_404(conf_id)
+        if not getattr(c, "details_json", None):
+            return jsonify({})
+        try:
+            return jsonify(_json.loads(c.details_json))
+        except Exception:
+            return jsonify({"error": "details_json corrompu"}), 500
+
+    @app.route("/api/conformite/<int:conf_id>/details/<section>/csv", methods=["GET"])
+    def api_conformite_details_csv(conf_id, section):
+        """Export CSV d'une section (applications, updates, users, services, ...)."""
+        import json as _json
+        import csv
+        from io import StringIO
+        from flask import Response
+        c = Conformite.query.get_or_404(conf_id)
+        if not getattr(c, "details_json", None):
+            return jsonify({"error": "Aucun détail enregistré"}), 404
+        try:
+            det = _json.loads(c.details_json)
+        except Exception:
+            return jsonify({"error": "details_json corrompu"}), 500
+        rows = det.get(section)
+        if not isinstance(rows, list):
+            return jsonify({"error": f"Section '{section}' introuvable"}), 404
+        # Colonnes : union des clés rencontrées (ordre stable)
+        seen = []
+        for r in rows:
+            if isinstance(r, dict):
+                for k in r.keys():
+                    if k not in seen:
+                        seen.append(k)
+        sio = StringIO()
+        sio.write("\ufeff")  # BOM UTF-8 (Excel ouvre directement en UTF-8)
+        w = csv.DictWriter(sio, fieldnames=seen, extrasaction="ignore",
+                           delimiter=";")  # ; pour Excel FR
+        w.writeheader()
+        for r in rows:
+            if isinstance(r, dict):
+                w.writerow({k: ("" if v is None else v) for k, v in r.items()})
+        filename = f"{_safe(c.machine or 'machine')}_{section}.csv"
+        return Response(
+            sio.getvalue(),
+            mimetype="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.route("/api/conformite/<int:conf_id>", methods=["DELETE"])
     def api_conformite_delete(conf_id):

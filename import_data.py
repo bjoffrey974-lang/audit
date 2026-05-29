@@ -232,6 +232,10 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
             nb_critiques=calc["nb_critiques"],
             resultats_json=_json.dumps(resultats, ensure_ascii=False),
         )
+        # Bloc details (agent v1.1+) — optionnel
+        details = payload.get("details")
+        if details:
+            conf.details_json = _json.dumps(details, ensure_ascii=False)
         db.session.add(conf)
         db.session.flush()
         conformite_id = conf.id

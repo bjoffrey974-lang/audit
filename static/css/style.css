@@ -60,6 +60,18 @@ main { flex: 1; }
 .conf-badge { padding: 3px 10px; border-radius: 12px; color: white;
   font-size: 11px; font-weight: 600; }
 
+/* Détails étendus dans la conformité (winaudit-like) */
+.conf-details-summary {
+  margin-top: 10px; padding: 8px 12px;
+  background: #f8f9fa; border-radius: 4px;
+  border-left: 3px solid #6c757d;
+  font-size: 13px;
+}
+.conf-details-pane { margin-top: 10px; }
+.conf-section summary:hover { color: #0d6efd; }
+.conf-section .table { font-size: 12px; }
+.conf-section .table th, .conf-section .table td { padding: 4px 8px; }
+
 /* =================== TABLEAUX =================== */
 .table { width: 100%; border-collapse: collapse; background: white;
   border-radius: 6px; overflow: hidden;

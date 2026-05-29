@@ -509,6 +509,99 @@ def generate_pdf(audit):
                 ])
             story.append(_make_data_table(data))
 
+        # ----- Annexes : détails collectés par l'agent (winaudit-like) -----
+        machines_avec_details = [c for c in audit.conformites
+                                 if getattr(c, "details_json", None)]
+        if machines_avec_details:
+            story.append(PageBreak())
+            story.append(Paragraph("Annexes : inventaire détaillé", h2))
+            story.append(Paragraph(
+                "Collecte étendue par l'agent : applications installées, comptes "
+                "utilisateurs, résumé des mises à jour, outils d'accès distant. "
+                "Les listes complètes (services, pilotes, tâches planifiées, "
+                "règles pare-feu…) sont disponibles dans la plateforme en "
+                "export CSV.", small))
+
+            for conf in machines_avec_details:
+                try:
+                    det = _json.loads(conf.details_json)
+                except Exception:
+                    continue
+                story.append(Spacer(1, 0.4*cm))
+                story.append(Paragraph(
+                    f"<b>🖥 {conf.machine or 'Machine'}</b> "
+                    f"({conf.profil or '?'})", normal))
+
+                # Alerte : outils d'accès distant
+                remote = det.get("remote_access") or []
+                if remote:
+                    story.append(Paragraph(
+                        "<b><font color='#dc3545'>⚠ Outils d'accès distant "
+                        f"détectés ({len(remote)})</font></b>", normal))
+                    data = [["Logiciel", "Version", "Éditeur"]]
+                    for r in remote:
+                        data.append([
+                            (r.get("nom") or "")[:40],
+                            (r.get("version") or "")[:20],
+                            (r.get("editeur") or "")[:25],
+                        ])
+                    story.append(_make_data_table(data))
+                    story.append(Spacer(1, 0.2*cm))
+
+                # Comptes utilisateurs
+                users = det.get("users") or []
+                if users:
+                    story.append(Paragraph(
+                        f"<b>Comptes utilisateurs ({len(users)})</b>", normal))
+                    data = [["Nom", "Actif", "Mdp éternel", "Description"]]
+                    for u in users:
+                        data.append([
+                            (u.get("nom") or "")[:25],
+                            "Oui" if u.get("active") else "Non",
+                            "Oui" if u.get("mdp_jamais_expire") else "Non",
+                            (u.get("description") or "")[:40],
+                        ])
+                    story.append(_make_data_table(data))
+                    story.append(Spacer(1, 0.2*cm))
+
+                # Résumé MAJ
+                updates = det.get("updates") or []
+                if updates:
+                    n = len(updates)
+                    derniere = updates[0].get("date_install", "?") if updates else "?"
+                    story.append(Paragraph(
+                        f"<b>Mises à jour Windows :</b> {n} KB installées · "
+                        f"dernière le {derniere}", normal))
+                    data = [["KB", "Type", "Date"]]
+                    for u in updates[:5]:
+                        data.append([
+                            (u.get("kb") or "")[:15],
+                            (u.get("type") or "")[:25],
+                            (u.get("date_install") or "")[:12],
+                        ])
+                    story.append(_make_data_table(data))
+                    if n > 5:
+                        story.append(Paragraph(
+                            f"<i>Liste complète disponible en export CSV "
+                            f"({n - 5} autres KB).</i>", small))
+                    story.append(Spacer(1, 0.2*cm))
+
+                # Applications installées
+                apps = det.get("applications") or []
+                if apps:
+                    story.append(Paragraph(
+                        f"<b>Applications installées ({len(apps)})</b>", normal))
+                    data = [["Nom", "Version", "Éditeur", "Installé"]]
+                    for a in apps:
+                        data.append([
+                            (a.get("nom") or "")[:40],
+                            (a.get("version") or "")[:15],
+                            (a.get("editeur") or "")[:25],
+                            (a.get("date_install") or "")[:12],
+                        ])
+                    story.append(_make_data_table(data))
+                    story.append(Spacer(1, 0.2*cm))
+
     # Pied
     story.append(Spacer(1, 1*cm))
     story.append(Paragraph(

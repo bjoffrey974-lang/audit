@@ -842,6 +842,27 @@ window.AppLogic = (function () {
         <td><small class="muted">${escape(r.detail || "")}</small></td>
       </tr>`;
     });
+    // Bloc "Détails" (winaudit-like) — affiché seulement si has_details
+    let detailsBlock = "";
+    if (conf.has_details && conf.details_counts) {
+      const dc = conf.details_counts;
+      const remoteAlert = dc.remote_access > 0
+        ? `<span style="color:#dc3545;font-weight:600">⚠ ${dc.remote_access} accès distant(s) détecté(s)</span> · `
+        : "";
+      detailsBlock = `
+        <div class="conf-details-summary">
+          <strong>📋 Détails collectés :</strong>
+          ${remoteAlert}
+          ${dc.applications || 0} applis ·
+          ${dc.updates || 0} MAJ ·
+          ${dc.users || 0} comptes ·
+          ${dc.services || 0} services ·
+          ${dc.drivers || 0} pilotes
+          <button class="btn btn-sm" data-toggle-details="${conf.id}"
+                  style="margin-left:10px">Voir les détails ▾</button>
+        </div>
+        <div class="conf-details-pane" id="conf_details_${conf.id}" hidden></div>`;
+    }
     div.innerHTML = `
       <div class="site-card-header">
         <strong>🖥 ${escape(conf.machine || "Machine")}
@@ -857,7 +878,8 @@ window.AppLogic = (function () {
       <table class="table" style="margin-top:8px">
         <thead><tr><th>Contrôle</th><th>Statut</th><th>Détail</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      ${detailsBlock}`;
     div.querySelector("[data-del-conf]").addEventListener("click", () => {
       if (!confirm("Supprimer ce bilan de conformité ?")) return;
       fetch(`/api/conformite/${conf.id}`, { method: "DELETE" }).then(() => {
@@ -865,7 +887,112 @@ window.AppLogic = (function () {
         renderConformites();
       });
     });
+    const togBtn = div.querySelector("[data-toggle-details]");
+    if (togBtn) {
+      togBtn.addEventListener("click", () => toggleConfDetails(conf.id, togBtn));
+    }
     return div;
+  }
+
+  // -------------------- Détails étendus (winaudit-like) --------------------
+  const DETAIL_SECTIONS = [
+    { key: "remote_access", label: "⚠ Accès distants détectés",
+      cols: [["nom","Logiciel"],["version","Version"],["editeur","Éditeur"]] },
+    { key: "applications", label: "Applications installées",
+      cols: [["nom","Nom"],["version","Version"],["editeur","Éditeur"],
+             ["date_install","Installé"]] },
+    { key: "updates", label: "Mises à jour Windows",
+      cols: [["kb","KB"],["type","Type"],["date_install","Date"],
+             ["installe_par","Installé par"]] },
+    { key: "users", label: "Comptes utilisateurs",
+      cols: [["nom","Nom"],["active","Actif"],["description","Description"],
+             ["derniere_connexion","Dernière connexion"],
+             ["mdp_jamais_expire","Mdp éternel"]] },
+    { key: "services", label: "Services Windows",
+      cols: [["nom_affiche","Service"],["etat","État"],
+             ["demarrage","Démarrage"],["compte","Compte"]] },
+    { key: "drivers", label: "Pilotes",
+      cols: [["peripherique","Périphérique"],["fabricant","Fabricant"],
+             ["version","Version"],["date","Date"]] },
+    { key: "scheduled_tasks", label: "Tâches planifiées",
+      cols: [["nom","Tâche"],["chemin","Chemin"],["etat","État"],
+             ["derniere_exec","Dernière exéc."]] },
+    { key: "firewall_rules", label: "Règles pare-feu",
+      cols: [["nom","Règle"],["direction","Direction"],["profil","Profil"]] },
+    { key: "sessions", label: "Sessions ouvertes",
+      cols: [["utilisateur","Utilisateur"],["etat","État"],["session","Session"]] },
+    { key: "volumes", label: "Volumes",
+      cols: [["lettre","Lettre"],["label","Label"],["fs","FS"],
+             ["taille_go","Taille (Go)"],["libre_go","Libre (Go)"]] },
+    { key: "network", label: "Configuration réseau",
+      cols: [["interface","Interface"],["ip","IP"],["mac","MAC"],
+             ["passerelle","Passerelle"],["dns","DNS"]] },
+    { key: "auth_failures", label: "Échecs d'authentification (30j)",
+      cols: [["date","Date"],["message","Message"]] },
+  ];
+
+  async function toggleConfDetails(confId, button) {
+    const pane = document.getElementById(`conf_details_${confId}`);
+    if (!pane) return;
+    if (!pane.hidden) {
+      pane.hidden = true;
+      button.textContent = "Voir les détails ▾";
+      return;
+    }
+    if (!pane.dataset.loaded) {
+      pane.innerHTML = '<p class="muted">Chargement…</p>';
+      try {
+        const r = await fetch(`/api/conformite/${confId}/details`);
+        const det = await r.json();
+        pane.innerHTML = renderConfDetails(confId, det);
+        pane.dataset.loaded = "1";
+      } catch (e) {
+        pane.innerHTML = '<p class="muted">Erreur de chargement.</p>';
+      }
+    }
+    pane.hidden = false;
+    button.textContent = "Masquer les détails ▴";
+  }
+
+  function renderConfDetails(confId, det) {
+    let html = '<div class="conf-details-sections">';
+    let nbVisibles = 0;
+    DETAIL_SECTIONS.forEach(sec => {
+      const rows = det[sec.key];
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      nbVisibles++;
+      const csvUrl = `/api/conformite/${confId}/details/${sec.key}/csv`;
+      let table = `<table class="table" style="margin:6px 0"><thead><tr>`;
+      sec.cols.forEach(c => { table += `<th>${escape(c[1])}</th>`; });
+      table += `</tr></thead><tbody>`;
+      rows.forEach(row => {
+        table += "<tr>";
+        sec.cols.forEach(c => {
+          let v = row[c[0]];
+          if (v === true) v = "Oui";
+          else if (v === false) v = "Non";
+          else if (v == null) v = "";
+          table += `<td>${escape(v)}</td>`;
+        });
+        table += "</tr>";
+      });
+      table += `</tbody></table>`;
+      html += `
+        <details class="conf-section" style="margin:8px 0">
+          <summary style="cursor:pointer;padding:6px 0;font-weight:600">
+            ${escape(sec.label)} <span class="muted">(${rows.length})</span>
+            <a href="${csvUrl}" class="btn btn-sm btn-export"
+               style="float:right;margin-left:8px"
+               download>📥 CSV</a>
+          </summary>
+          ${table}
+        </details>`;
+    });
+    if (nbVisibles === 0) {
+      html += '<p class="muted">Aucune section ne contient de données.</p>';
+    }
+    html += "</div>";
+    return html;
   }
 
   // -------------------- Import (scanner réseau / agent poste) --------------------
