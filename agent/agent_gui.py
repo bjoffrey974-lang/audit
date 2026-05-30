@@ -198,7 +198,10 @@ class AgentApp:
             "remote_access":   [("nom", "Logiciel", 240), ("version", "Version", 110),
                                 ("editeur", "Éditeur", 180)],
         }
-        self.DETAIL_LABELS = {key: label for key, label, _ in COLLECTORS}
+        # COLLECTORS Mac a 3 colonnes (key, label, fn), Windows en a 4
+        # depuis l'ajout des rôles serveur (key, label, fn, scope). On prend
+        # seulement les 2 premières, qui sont communes.
+        self.DETAIL_LABELS = {c[0]: c[1] for c in COLLECTORS}
         self.DETAIL_LABELS["remote_access"] = "⚠ Accès distants détectés"
 
         # On crée les onglets vides ; ils seront remplis quand un audit est lancé
