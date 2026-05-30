@@ -454,6 +454,140 @@ Select-Object @{N='lettre';E={$_.DriveLetter}},
 
 
 # ---------------------------------------------------------------------------
+# Imprimantes
+# ---------------------------------------------------------------------------
+
+def collect_printers():
+    """
+    Liste des imprimantes installées, filtrée pour ne garder que les
+    imprimantes "réelles" (réseau + USB locales physiques).
+    Exclut : imprimantes virtuelles (PDF, XPS, OneNote, Fax) et redirigées
+    Bureau à distance (ports TS* / RDP*).
+    """
+    cmd = """
+Get-Printer -ErrorAction SilentlyContinue |
+Select-Object @{N='nom';E={$_.Name}},
+              @{N='driver';E={$_.DriverName}},
+              @{N='port';E={$_.PortName}},
+              @{N='partage_unc';E={$_.ShareName}},
+              @{N='partagee';E={$_.Shared}},
+              @{N='location';E={$_.Location}},
+              @{N='commentaire';E={$_.Comment}},
+              @{N='type_imp';E={$_.Type.ToString()}}
+"""
+    data, ok = _ps_json(cmd, timeout=30)
+    if not ok or not data:
+        return []
+
+    # Récupérer aussi les ports pour extraire les IPs (pour les ports IP_xxx)
+    cmd_ports = """
+Get-PrinterPort -ErrorAction SilentlyContinue |
+Select-Object @{N='nom';E={$_.Name}},
+              @{N='ip';E={$_.PrinterHostAddress}},
+              @{N='port_num';E={$_.PortNumber}},
+              @{N='description';E={$_.Description}}
+"""
+    ports_data, ok2 = _ps_json(cmd_ports, timeout=20)
+    ports_index = {}
+    if ok2 and ports_data:
+        ports_index = {p.get("nom"): p for p in ports_data}
+
+    import re
+    out = []
+    for p in data:
+        nom = (p.get("nom") or "").strip()
+        driver = (p.get("driver") or "").strip()
+        port = (p.get("port") or "").strip()
+        nom_low = nom.lower()
+        port_low = port.lower()
+        driver_low = driver.lower()
+
+        # --- Filtres : exclure virtuelles et RDP ---
+        keywords_virtuelles = [
+            "pdf", "xps", "onenote", "fax", "microsoft print",
+            "send to onenote", "adobe pdf"
+        ]
+        if any(k in nom_low for k in keywords_virtuelles):
+            continue
+        if any(k in driver_low for k in keywords_virtuelles):
+            continue
+        # Imprimantes redirigées via Bureau à distance (TS* ou RDPnnn ou TSPrinter)
+        if (port_low.startswith("ts") or port_low.startswith("rdp")
+                or "tsprinter" in port_low or port_low == "nul:"
+                or port_low == "portprompt:"):
+            continue
+
+        # --- Type : reseau / usb / partage ---
+        # Cherche l'IP dans le port lui-même (IP_192.168.1.50)
+        ip = None
+        m = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", port)
+        if m:
+            ip = m.group(1)
+        # Sinon, regarder dans la table des ports (PrinterHostAddress)
+        if not ip and port in ports_index:
+            ip = (ports_index[port].get("ip") or "").strip() or None
+
+        partage_unc = None
+        if port.startswith("\\\\") or nom.startswith("\\\\"):
+            partage_unc = port if port.startswith("\\\\") else nom
+
+        if ip:
+            type_reseau = "reseau"
+        elif partage_unc:
+            type_reseau = "partage"
+        elif port_low.startswith(("usb", "lpt", "com")) or "usb" in port_low:
+            type_reseau = "usb"
+        elif port_low.startswith("wsd"):
+            # WSD = découverte réseau, considéré comme imprimante réseau
+            type_reseau = "reseau"
+        else:
+            # Port non identifié : on garde mais on type 'autre'
+            type_reseau = "autre"
+
+        # --- Extraction marque / modèle depuis driver ou nom ---
+        # Heuristique : le 1er mot du driver est souvent la marque
+        marque, modele = "", ""
+        if driver:
+            # Marques connues à tester en priorité
+            marques_connues = ["HP", "Hewlett-Packard", "Canon", "Brother",
+                               "Epson", "Lexmark", "Ricoh", "Kyocera",
+                               "Xerox", "Samsung", "Dell", "OKI", "Konica",
+                               "Sharp", "Toshiba", "Panasonic"]
+            for mk in marques_connues:
+                if driver.lower().startswith(mk.lower()):
+                    marque = mk if mk != "Hewlett-Packard" else "HP"
+                    # Le modèle est ce qui reste après la marque
+                    reste = driver[len(mk):].strip()
+                    # Retirer les suffixes drivers communs
+                    reste = re.sub(r"\s+(PCL\s*\d*|PS|XPS|Class Driver|PCLm|UPD|"
+                                   r"v[\d.]+|Universal Print Driver).*$",
+                                   "", reste, flags=re.IGNORECASE).strip()
+                    modele = reste
+                    break
+            if not marque:
+                # Fallback : premier mot = marque, reste = modèle
+                parts = driver.split(None, 1)
+                marque = parts[0]
+                if len(parts) > 1:
+                    modele = parts[1]
+
+        out.append({
+            "nom": nom,
+            "marque": marque,
+            "modele": modele,
+            "driver": driver,
+            "port": port,
+            "ip": ip or "",
+            "partage_unc": partage_unc or "",
+            "partagee": bool(p.get("partagee")),
+            "type_reseau": type_reseau,
+            "location": (p.get("location") or "").strip(),
+            "commentaire": (p.get("commentaire") or "").strip(),
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Cartes réseau
 # ---------------------------------------------------------------------------
 
@@ -497,6 +631,7 @@ COLLECTORS = [
     ("server_roles",     "Rôles serveur installés",         collect_server_roles,     "serveur"),
     ("server_features",  "Fonctionnalités serveur",         collect_server_features,  "serveur"),
     ("volumes",          "Volumes / partitions",            collect_volumes,          "both"),
+    ("printers",         "Imprimantes",                     collect_printers,         "both"),
     ("network",          "Configuration réseau",            collect_network,          "both"),
     ("auth_failures",    "Échecs d'authentification (30j)", collect_auth_failures,    "both"),
 ]
@@ -550,6 +685,7 @@ def count_summary(details):
         "server_roles": len(details.get("server_roles", [])),
         "server_features": len(details.get("server_features", [])),
         "volumes": len(details.get("volumes", [])),
+        "printers": len(details.get("printers", [])),
         "network": len(details.get("network", [])),
         "auth_failures": len(details.get("auth_failures", [])),
         "remote_access": len(details.get("remote_access", [])),

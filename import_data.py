@@ -230,6 +230,112 @@ def _roles_to_short_label(server_roles):
     return ", ".join(seen)
 
 
+def _process_printers(audit, poste, payload, db, Equipement):
+    """
+    Pour chaque imprimante détectée dans details.printers :
+    - Crée ou retrouve l'équipement imprimante (dédoublonnage par IP ou marque+modèle+port)
+    - Crée une liaison poste ↔ imprimante (sans doublon)
+    Place l'imprimante à droite du poste qui l'a découverte.
+
+    Note : on importe Liaison ici pour ne pas alourdir la signature de
+    importer_inventaire_poste qui est déjà longue.
+    """
+    from models import Liaison
+
+    details = payload.get("details") or {}
+    printers = details.get("printers") or []
+    if not printers:
+        return {"created": 0, "linked": 0}
+
+    # Tous les équipements existants de l'audit pour le dédoublonnage rapide
+    tous_eq = Equipement.query.filter_by(audit_id=audit.id).all()
+    imprimantes_existantes = [e for e in tous_eq if e.type == "imprimante"]
+
+    created = 0
+    linked = 0
+    offset_idx = 0  # incrément pour étaler verticalement les nouvelles imprimantes
+
+    for p in printers:
+        ip = (p.get("ip") or "").strip()
+        marque = (p.get("marque") or "").strip()
+        modele = (p.get("modele") or "").strip()
+        port = (p.get("port") or "").strip()
+        nom_imp = (p.get("nom") or "").strip() or f"{marque} {modele}".strip() or "Imprimante"
+        type_reseau = p.get("type_reseau") or "autre"
+
+        # --- Dédoublonnage : IP d'abord, sinon marque+modèle+port ---
+        cible_imp = None
+        if ip:
+            cible_imp = next((e for e in imprimantes_existantes
+                              if (e.ip or "").strip() == ip), None)
+        if not cible_imp and marque and modele:
+            # Pour les USB ou imprimantes sans IP, on dédoublonne sur
+            # marque+modèle uniquement (même imprimante chez plusieurs postes USB
+            # est rare et bizarre, donc on accepte ce dédoublonnage souple).
+            cible_imp = next(
+                (e for e in imprimantes_existantes
+                 if (e.marque or "").strip().lower() == marque.lower()
+                 and (e.modele or "").strip().lower() == modele.lower()
+                 and not (e.ip or "").strip()),  # imprimantes sans IP uniquement
+                None)
+
+        # --- Création si absente ---
+        if not cible_imp:
+            # Position : à droite du poste, espacée si plusieurs imprimantes
+            pos_x = (poste.pos_x or 0) + 220
+            pos_y = (poste.pos_y or 0) + (offset_idx * 90)
+            cible_imp = Equipement(
+                audit_id=audit.id,
+                type="imprimante",
+                nom_hote=nom_imp,
+                marque=marque,
+                modele=modele,
+                ip=ip,
+                pos_x=pos_x,
+                pos_y=pos_y,
+                # Le port (USB001, IP_192.168.1.50, etc.) va dans commentaires
+                # pour aider à identifier ultérieurement quelle instance physique
+                commentaires=f"Port : {port}" if port else None,
+                role=("Imprimante USB locale" if type_reseau == "usb"
+                      else "Imprimante réseau" if type_reseau == "reseau"
+                      else "Imprimante partagée" if type_reseau == "partage"
+                      else "Imprimante"),
+            )
+            db.session.add(cible_imp)
+            db.session.flush()
+            imprimantes_existantes.append(cible_imp)
+            created += 1
+            offset_idx += 1
+        else:
+            # Mise à jour douce : complète les champs vides sans écraser
+            if ip and not (cible_imp.ip or "").strip():
+                cible_imp.ip = ip
+            if marque and not (cible_imp.marque or "").strip():
+                cible_imp.marque = marque
+            if modele and not (cible_imp.modele or "").strip():
+                cible_imp.modele = modele
+
+        # --- Liaison poste ↔ imprimante (sans doublon) ---
+        existante = Liaison.query.filter_by(
+            audit_id=audit.id, source_id=poste.id, dest_id=cible_imp.id).first()
+        if not existante:
+            # Vérif inverse aussi (peu importe le sens)
+            existante = Liaison.query.filter_by(
+                audit_id=audit.id, source_id=cible_imp.id, dest_id=poste.id).first()
+        if not existante:
+            liaison_type = "wifi" if type_reseau == "reseau" else "usb" if type_reseau == "usb" else "ethernet"
+            db.session.add(Liaison(
+                audit_id=audit.id,
+                source_id=poste.id,
+                dest_id=cible_imp.id,
+                type=liaison_type,
+                commentaire=f"Découverte auto via {nom_imp} ({port or 'pas de port'})",
+            ))
+            linked += 1
+
+    return {"created": created, "linked": linked}
+
+
 def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
     """
     Importe un inventaire de poste/serveur (avec bloc conformité éventuel).
@@ -315,6 +421,9 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
         db.session.flush()
         conformite_id = conf.id
 
+    # Traitement des imprimantes découvertes (création + liaisons)
+    printers_result = _process_printers(audit, cible, payload, db, Equipement)
+
     db.session.commit()
     return {
         "equipement_id": cible.id,
@@ -322,4 +431,6 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
         "score": score,
         "niveau": niveau,
         "action": action,
+        "printers_created": printers_result["created"],
+        "printers_linked": printers_result["linked"],
     }

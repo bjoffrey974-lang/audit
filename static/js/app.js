@@ -934,6 +934,9 @@ window.AppLogic = (function () {
     { key: "volumes", label: "Volumes",
       cols: [["lettre","Lettre"],["label","Label"],["fs","FS"],
              ["taille_go","Taille (Go)"],["libre_go","Libre (Go)"]] },
+    { key: "printers", label: "Imprimantes",
+      cols: [["nom","Nom"],["marque","Marque"],["modele","Modèle"],
+             ["ip","IP"],["port","Port"],["type_reseau","Type"]] },
     { key: "network", label: "Configuration réseau",
       cols: [["interface","Interface"],["ip","IP"],["mac","MAC"],
              ["passerelle","Passerelle"],["dns","DNS"]] },
@@ -1030,9 +1033,13 @@ window.AppLogic = (function () {
             const r = res.resultat;
             const niveau = { conforme: "Conforme", partiel: "Partiellement conforme",
                              non_conforme: "NON CONFORME", indetermine: "Indéterminé" }[r.niveau] || r.niveau;
-            alert(`Inventaire poste importé :\n` +
+            let msg = `Inventaire poste importé :\n` +
                   `• Machine ${r.action === "cree" ? "créée" : "mise à jour"}\n` +
-                  `• Conformité : ${r.score == null ? "—" : r.score + "/100"} (${niveau})`);
+                  `• Conformité : ${r.score == null ? "—" : r.score + "/100"} (${niveau})`;
+            if (r.printers_created > 0 || r.printers_linked > 0) {
+              msg += `\n• Imprimantes : ${r.printers_created} créée(s), ${r.printers_linked} liaison(s) ajoutée(s)`;
+            }
+            alert(msg);
             loadConformites();
           } else {
             const s = res.stats;
