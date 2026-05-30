@@ -166,6 +166,70 @@ def importer_payload(audit, payload, db, Equipement):
     return stats
 
 
+# Mapping des rôles Windows Server (nom technique → acronyme court pour l'audit).
+# Couvre les rôles les plus courants. Ce qui n'est pas mappé prend son DisplayName.
+WINDOWS_ROLES_SHORT = {
+    "AD-Domain-Services":         "AD DS",
+    "ADRMS":                      "AD RMS",
+    "ADCS":                       "AD CS",
+    "ADFS-Federation":            "AD FS",
+    "ADLDS":                      "AD LDS",
+    "DHCP":                       "DHCP",
+    "DNS":                        "DNS",
+    "Fax":                        "Fax",
+    "FileAndStorage-Services":    "File Services",
+    "File-Services":              "File Services",
+    "Hyper-V":                    "Hyper-V",
+    "NPAS":                       "NPS",
+    "Print-Services":             "Print Services",
+    "Remote-Desktop-Services":    "RDS",
+    "RDS":                        "RDS",
+    "RemoteAccess":               "RAS",
+    "Routing":                    "Routing",
+    "ServerEssentialsRole":       "Server Essentials",
+    "UpdateServices":             "WSUS",
+    "WDS":                        "WDS",
+    "WSUS":                       "WSUS",
+    "Web-Server":                 "IIS",
+    "Application-Server":         "App Server",
+    "VolumeActivation":           "KMS",
+    "WindowsServerBackup":        "Backup",
+}
+
+
+def _roles_to_short_label(server_roles):
+    """
+    Convertit une liste de server_roles (collectés par l'agent) en string
+    courte type 'AD DS, DNS, DHCP, IIS' pour le champ Rôle/Fonction.
+
+    Pour chaque rôle, on prend l'acronyme du mapping s'il existe, sinon on
+    prend le libellé Windows tronqué intelligemment (premier mot avant
+    parenthèse ou virgule).
+    """
+    if not server_roles:
+        return ""
+    labels = []
+    for r in server_roles:
+        nom = r.get("nom", "")
+        libelle = r.get("libelle", "")
+        # 1. Acronyme connu ?
+        if nom in WINDOWS_ROLES_SHORT:
+            labels.append(WINDOWS_ROLES_SHORT[nom])
+            continue
+        # 2. Sinon, on utilise le libellé Windows en gardant le texte avant '('
+        court = libelle.split("(")[0].strip()
+        if court:
+            labels.append(court)
+        elif nom:
+            labels.append(nom)
+    # Dédoublonner tout en gardant l'ordre
+    seen = []
+    for l in labels:
+        if l and l not in seen:
+            seen.append(l)
+    return ", ".join(seen)
+
+
 def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
     """
     Importe un inventaire de poste/serveur (avec bloc conformité éventuel).
@@ -208,6 +272,17 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
             setattr(cible, champ, val)
     if not cible.nom_hote:
         cible.nom_hote = nom
+
+    # Pré-remplir le champ "rôle / fonction" depuis les rôles Windows Server
+    # détectés par l'agent (uniquement si le champ est vide pour préserver
+    # une éventuelle annotation manuelle de l'auditeur).
+    details_preview = payload.get("details") or {}
+    server_roles = details_preview.get("server_roles") or []
+    if server_roles and not (cible.role or "").strip():
+        short = _roles_to_short_label(server_roles)
+        if short:
+            cible.role = short
+
     db.session.flush()
 
     # --- Bloc conformité ---
