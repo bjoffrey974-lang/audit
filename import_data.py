@@ -197,6 +197,138 @@ WINDOWS_ROLES_SHORT = {
 }
 
 
+# Applications "métier" à fort enjeu commercial qu'on souhaite faire remonter
+# automatiquement dans l'onglet 7 (Applications métier) de l'audit.
+# Chaque entrée déclare comment matcher l'application détectée par l'agent et
+# quelles métadonnées injecter dans la fiche.
+#
+# matchers : liste de motifs CHERCHÉS DANS LE NOM de l'application installée
+#   (insensible à la casse, sous-chaîne — donc "office" matche aussi
+#    "Microsoft 365 Apps for Business"). On veut être STRICT, donc on ne
+#    déclare ici que ce qui a un vrai intérêt en audit commercial.
+# type    : valeur métier qu'on pré-remplit (correspond aux types existants
+#           dans le dropdown UI)
+# editeur : pré-rempli (peut être affiné après par l'auditeur)
+APPLICATIONS_METIER_DETECTABLES = [
+    # --- Bureautique / collaboration ---
+    {"nom": "Microsoft Office / 365",
+     "matchers": ["microsoft 365", "office 365", "microsoft office",
+                  "office professional", "office home", "office standard"],
+     "editeur": "Microsoft", "type": "bureautique"},
+    {"nom": "Microsoft Teams",
+     "matchers": ["microsoft teams"],
+     "editeur": "Microsoft", "type": "communication"},
+    {"nom": "Zoom",
+     "matchers": ["zoom workplace", "zoom client", "zoom meetings"],
+     "editeur": "Zoom", "type": "communication"},
+    {"nom": "LibreOffice",
+     "matchers": ["libreoffice"],
+     "editeur": "The Document Foundation", "type": "bureautique"},
+    {"nom": "Adobe Acrobat",
+     "matchers": ["adobe acrobat"],
+     "editeur": "Adobe", "type": "bureautique"},
+
+    # --- Comptabilité / Gestion / ERP ---
+    {"nom": "Sage 100",
+     "matchers": ["sage 100"],
+     "editeur": "Sage", "type": "comptabilité"},
+    {"nom": "Sage X3",
+     "matchers": ["sage x3"],
+     "editeur": "Sage", "type": "ERP"},
+    {"nom": "EBP",
+     "matchers": ["ebp comptabilit", "ebp gestion", "ebp paye"],
+     "editeur": "EBP", "type": "comptabilité"},
+    {"nom": "Cegid",
+     "matchers": ["cegid"],
+     "editeur": "Cegid", "type": "ERP"},
+    {"nom": "Ciel",
+     "matchers": ["ciel compta", "ciel gestion", "ciel paye"],
+     "editeur": "Ciel / Sage", "type": "comptabilité"},
+
+    # --- Antivirus / Sécurité ---
+    {"nom": "Bitdefender",
+     "matchers": ["bitdefender"],
+     "editeur": "Bitdefender", "type": "sécurité"},
+    {"nom": "ESET",
+     "matchers": ["eset endpoint", "eset nod32", "eset smart"],
+     "editeur": "ESET", "type": "sécurité"},
+    {"nom": "Kaspersky",
+     "matchers": ["kaspersky"],
+     "editeur": "Kaspersky", "type": "sécurité"},
+    {"nom": "Norton",
+     "matchers": ["norton 360", "norton security"],
+     "editeur": "NortonLifeLock", "type": "sécurité"},
+    {"nom": "Sophos",
+     "matchers": ["sophos"],
+     "editeur": "Sophos", "type": "sécurité"},
+    {"nom": "McAfee",
+     "matchers": ["mcafee"],
+     "editeur": "McAfee", "type": "sécurité"},
+    {"nom": "Malwarebytes",
+     "matchers": ["malwarebytes"],
+     "editeur": "Malwarebytes", "type": "sécurité"},
+
+    # --- Sauvegarde ---
+    {"nom": "Veeam",
+     "matchers": ["veeam"],
+     "editeur": "Veeam", "type": "sauvegarde"},
+    {"nom": "Acronis",
+     "matchers": ["acronis"],
+     "editeur": "Acronis", "type": "sauvegarde"},
+    {"nom": "Macrium",
+     "matchers": ["macrium reflect"],
+     "editeur": "Macrium", "type": "sauvegarde"},
+
+    # --- Accès distant ---
+    {"nom": "TeamViewer",
+     "matchers": ["teamviewer"],
+     "editeur": "TeamViewer", "type": "accès distant"},
+    {"nom": "AnyDesk",
+     "matchers": ["anydesk"],
+     "editeur": "AnyDesk SE", "type": "accès distant"},
+    {"nom": "Splashtop",
+     "matchers": ["splashtop"],
+     "editeur": "Splashtop", "type": "accès distant"},
+
+    # --- Métier vertical (WinDev/HFSQL — important pour les clients Boyer) ---
+    {"nom": "WinDev",
+     "matchers": ["windev", "webdev"],
+     "editeur": "PC SOFT", "type": "développement"},
+    {"nom": "HFSQL",
+     "matchers": ["hfsql"],
+     "editeur": "PC SOFT", "type": "base de données"},
+]
+
+
+def _detecter_applications_metier(applications_detectees):
+    """
+    Filtre les applications collectées par l'agent pour ne garder que celles
+    qui correspondent à la liste blanche des applications "métier".
+
+    Retourne un dict {nom_canonique: {nom, editeur, type, version_observee}}.
+    Si plusieurs applications de l'agent matchent la même entrée de liste
+    blanche (ex: Office 365 + Microsoft 365 Apps), on n'en remonte qu'une.
+    """
+    if not applications_detectees:
+        return {}
+    detectes = {}
+    for app in applications_detectees:
+        nom_app = (app.get("nom") or "").lower()
+        if not nom_app:
+            continue
+        for entry in APPLICATIONS_METIER_DETECTABLES:
+            if any(m in nom_app for m in entry["matchers"]):
+                if entry["nom"] not in detectes:
+                    detectes[entry["nom"]] = {
+                        "nom": entry["nom"],
+                        "editeur": entry["editeur"],
+                        "type": entry["type"],
+                        "version_observee": (app.get("version") or "").strip(),
+                    }
+                break  # ne pas matcher plusieurs entries pour la même app
+    return detectes
+
+
 def _roles_to_short_label(server_roles):
     """
     Convertit une liste de server_roles (collectés par l'agent) en string
@@ -336,6 +468,97 @@ def _process_printers(audit, poste, payload, db, Equipement):
     return {"created": created, "linked": linked}
 
 
+def _process_applications_metier(audit, poste, payload, db):
+    """
+    Pour chaque application détectée par l'agent qui correspond à la liste
+    blanche APPLICATIONS_METIER_DETECTABLES :
+      - Si une entrée du même nom existe déjà dans l'audit (onglet 7) :
+        ajoute le nom de la machine au commentaire (sans doublon)
+      - Sinon : crée une nouvelle entrée avec nom, éditeur, type, version
+        et un commentaire indiquant la(les) machine(s) où elle est installée.
+
+    Ne touche jamais aux champs déjà saisis manuellement (fournisseur_support,
+    contact_support, criticité, type si modifié) — on n'écrase pas les
+    annotations métier de l'auditeur.
+
+    Retourne {created, updated}.
+    """
+    from models import Application
+
+    details = payload.get("details") or {}
+    apps_detectees = details.get("applications") or []
+    if not apps_detectees:
+        return {"created": 0, "updated": 0}
+
+    correspondances = _detecter_applications_metier(apps_detectees)
+    if not correspondances:
+        return {"created": 0, "updated": 0}
+
+    nom_poste = (poste.nom_hote or "").strip() or f"Machine #{poste.id}"
+    apps_existantes = Application.query.filter_by(audit_id=audit.id).all()
+
+    created = 0
+    updated = 0
+    for nom_canon, info in correspondances.items():
+        # Chercher si l'application existe déjà (par nom canonique)
+        cible = next(
+            (a for a in apps_existantes
+             if (a.nom or "").strip().lower() == nom_canon.lower()),
+            None)
+
+        if not cible:
+            # --- Création ---
+            commentaire = f"Détecté automatiquement sur : {nom_poste}"
+            version = info.get("version_observee")
+            if version:
+                commentaire += f" (version observée : {version})"
+            cible = Application(
+                audit_id=audit.id,
+                nom=info["nom"],
+                editeur=info["editeur"],
+                type=info["type"],
+                version=version or None,
+                commentaires=commentaire,
+            )
+            db.session.add(cible)
+            apps_existantes.append(cible)
+            created += 1
+        else:
+            # --- Enrichissement souple (ne pas écraser la saisie manuelle) ---
+            modifie = False
+
+            # Compléter les champs vides uniquement
+            if not (cible.editeur or "").strip() and info["editeur"]:
+                cible.editeur = info["editeur"]
+                modifie = True
+            if not (cible.type or "").strip() and info["type"]:
+                cible.type = info["type"]
+                modifie = True
+            if not (cible.version or "").strip() and info.get("version_observee"):
+                cible.version = info["version_observee"]
+                modifie = True
+
+            # Ajouter le nom de la machine au commentaire si pas déjà mentionné
+            commentaire_actuel = cible.commentaires or ""
+            if nom_poste not in commentaire_actuel:
+                marqueur = "Détecté automatiquement sur :"
+                if marqueur in commentaire_actuel:
+                    # Ajouter à la liste existante des machines
+                    cible.commentaires = commentaire_actuel.rstrip() + f", {nom_poste}"
+                else:
+                    # Pas encore de section auto, on l'ajoute en gardant le commentaire manuel
+                    sep = "\n" if commentaire_actuel.strip() else ""
+                    cible.commentaires = (commentaire_actuel
+                                          + sep
+                                          + f"Détecté automatiquement sur : {nom_poste}")
+                modifie = True
+
+            if modifie:
+                updated += 1
+
+    return {"created": created, "updated": updated}
+
+
 def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
     """
     Importe un inventaire de poste/serveur (avec bloc conformité éventuel).
@@ -424,6 +647,9 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
     # Traitement des imprimantes découvertes (création + liaisons)
     printers_result = _process_printers(audit, cible, payload, db, Equipement)
 
+    # Traitement des applications métier (liste blanche)
+    apps_metier_result = _process_applications_metier(audit, cible, payload, db)
+
     db.session.commit()
     return {
         "equipement_id": cible.id,
@@ -433,4 +659,6 @@ def importer_inventaire_poste(audit, payload, db, Equipement, Conformite):
         "action": action,
         "printers_created": printers_result["created"],
         "printers_linked": printers_result["linked"],
+        "applications_metier_created": apps_metier_result["created"],
+        "applications_metier_updated": apps_metier_result["updated"],
     }

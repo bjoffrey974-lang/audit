@@ -1039,6 +1039,9 @@ window.AppLogic = (function () {
             if (r.printers_created > 0 || r.printers_linked > 0) {
               msg += `\n• Imprimantes : ${r.printers_created} créée(s), ${r.printers_linked} liaison(s) ajoutée(s)`;
             }
+            if (r.applications_metier_created > 0 || r.applications_metier_updated > 0) {
+              msg += `\n• Applications métier : ${r.applications_metier_created} créée(s), ${r.applications_metier_updated} mise(s) à jour`;
+            }
             alert(msg);
             loadConformites();
           } else {
