@@ -503,9 +503,20 @@ Select-Object @{N='nom';E={$_.Name}},
         driver_low = driver.lower()
 
         # --- Filtres : exclure virtuelles et RDP ---
+        # Mots-clés repérables dans le nom ou le nom du driver
         keywords_virtuelles = [
+            # Imprimantes virtuelles Microsoft
             "pdf", "xps", "onenote", "fax", "microsoft print",
-            "send to onenote", "adobe pdf"
+            "send to onenote",
+            # PDF tiers
+            "adobe pdf", "cutepdf", "pdfcreator", "foxit", "nitro pdf",
+            "bullzip", "dopdf", "novapdf", "primopdf",
+            # Outils d'accès distant (impriment chez le pilote, pas chez l'auditeur)
+            "anydesk", "teamviewer", "splashtop", "rustdesk",
+            "chrome remote desktop", "parallels", "vmware", "citrix",
+            "logmein", "remotepc", "screenconnect",
+            # Génériques virtuel
+            "virtual printer", "imprimante virtuelle",
         ]
         if any(k in nom_low for k in keywords_virtuelles):
             continue
