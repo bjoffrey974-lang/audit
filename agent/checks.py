@@ -114,14 +114,78 @@ def chk_firewall_actif(is_admin=False):
     return _result("attention", f"Pare-feu actif sur {actifs}/{len(vals)} profils seulement")
 
 
+# Antivirus tiers connus : pour chaque famille, la liste des noms de services
+# Windows qui indiquent que l'AV est ACTIF sur la machine. Utile en fallback
+# quand SecurityCenter2 n'est pas disponible (Windows Server avant 2022).
+#
+# Le matching se fait par préfixe insensible à la casse : si un service en
+# cours d'exécution commence par un de ces noms, l'AV est considéré comme
+# actif. On retient les noms les plus stables (souvent identiques sur 10 ans).
+AV_SERVICES_CONNUS = {
+    "Bitdefender": ["EPSecurityService", "EPProtectedService",
+                    "EPIntegrationService", "VSSERV", "bdss"],
+    "McAfee":      ["McAfeeFramework", "McShield", "mfemms", "masvc",
+                    "macmnsvc", "mfevtp"],
+    "Sophos":      ["Sophos Anti-Virus", "SAVService", "Sophos Endpoint",
+                    "Sophos MCS Agent", "Sophos AutoUpdate"],
+    "ESET":        ["ekrn", "ehttpsrv", "EraAgentSvc"],
+    "Kaspersky":   ["klnagent", "AVP", "kavfs", "KSDE"],
+    "Norton":      ["NortonSecurity", "ccSetMgr", "NS", "NortonInternetSecurity"],
+    "Trend Micro": ["tmlisten", "ntrtscan", "TmCCSF", "TmPfw", "TmProxy"],
+    "Avast":       ["avast! Antivirus", "AvastSvc", "aswbIDSAgent"],
+    "AVG":         ["avgsvc", "AVGSvc", "avgntflt"],
+    "Malwarebytes": ["MBAMService", "MBEndpointAgent"],
+    "F-Secure":    ["F-Secure Gatekeeper", "FSDFWD", "FSMA"],
+    "Webroot":     ["WRSVC", "WRkrn"],
+    "Avira":       ["Avira.ServiceHost", "AntiVirSchedulerService",
+                    "AntiVirService"],
+    "SentinelOne": ["SentinelAgent", "SentinelHelperService",
+                    "SentinelStaticEngine"],
+    "CrowdStrike": ["CSAgent", "CSFalconService"],
+}
+
+
+def _detecter_av_par_services():
+    """
+    Cherche dans les services Windows en cours d'exécution un AV connu.
+    Retourne une liste de noms d'AV détectés (ex: ['Bitdefender', 'McAfee']).
+    Utilise Get-Service (rapide, dispo sur tous les Windows).
+    """
+    out, ok = ps(
+        "Get-Service -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.Status -eq 'Running' } | "
+        "Select-Object -ExpandProperty Name")
+    if not ok or not out.strip():
+        return []
+    services_actifs = set(out.strip().splitlines())
+    detectes = []
+    for nom_av, prefixes in AV_SERVICES_CONNUS.items():
+        for prefix in prefixes:
+            # Match exact OU service commençant par le préfixe (cas génériques)
+            prefix_low = prefix.lower()
+            if any(s.lower() == prefix_low or s.lower().startswith(prefix_low)
+                   for s in services_actifs):
+                detectes.append(nom_av)
+                break  # un seul match suffit pour cet AV
+    return detectes
+
+
 def chk_antivirus_present(is_admin=False):
-    # Security Center (postes). Sur serveurs, SecurityCenter2 n'existe pas -> Defender.
+    # 1) Security Center 2 (postes Windows 10/11). Sur Server 2016-2019,
+    #    cette classe WMI n'existe pas et la commande retourne vide.
     out, ok = ps(
         "Get-CimInstance -Namespace root/SecurityCenter2 -Class AntiVirusProduct "
         "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty displayName")
     if ok and out.strip():
         return _result("ok", "AV détecté : " + out.strip().replace("\n", ", "))
-    # Fallback Defender
+
+    # 2) Fallback détection par services Windows (essentiel sur Windows Server)
+    av_par_services = _detecter_av_par_services()
+    if av_par_services:
+        return _result("ok",
+                       f"AV actif (via services) : {', '.join(av_par_services)}")
+
+    # 3) Fallback Defender (pour Windows 10/11 sans AV tiers)
     out2, ok2 = ps("(Get-MpComputerStatus).AntivirusEnabled")
     if ok2 and out2.strip().lower() == "true":
         return _result("ok", "Microsoft Defender actif")
@@ -130,10 +194,26 @@ def chk_antivirus_present(is_admin=False):
     return _result("indetermine", "État antivirus non déterminable")
 
 
+# Services de MISE À JOUR pour chaque AV. Si ce service tourne, on considère
+# que l'AV reçoit ses signatures (sans pouvoir connaître l'âge exact).
+AV_SERVICES_UPDATE = {
+    "Bitdefender": ["EPUpdateService"],
+    "McAfee":      ["McAfeeFrameworkUpdaterService", "mfemms"],
+    "Sophos":      ["Sophos AutoUpdate"],
+    "ESET":        ["ekrn"],  # ekrn fait à la fois protection et update
+    "Kaspersky":   ["AVP", "klnagent"],
+    "Norton":      ["LiveUpdate"],
+    "Trend Micro": ["TmListen"],
+    "Avast":       ["AvastSvc"],
+    "Malwarebytes": ["MBAMService"],
+    "Avira":       ["AntiVirSchedulerService"],
+    "SentinelOne": ["SentinelAgent"],
+    "CrowdStrike": ["CSFalconService"],
+}
+
+
 def chk_antivirus_ajour(is_admin=False):
-    # 1) Lit le productState de tous les AV inscrits dans Security Center.
-    #    productState est un bitfield : bits 0x10/0x11 indiquent "signatures à jour"
-    #    pour les AV tiers (Bitdefender, McAfee, etc.).
+    # 1) Security Center 2 (postes Windows 10/11)
     out, ok = ps(
         "Get-CimInstance -Namespace root/SecurityCenter2 -Class AntiVirusProduct "
         "-ErrorAction SilentlyContinue | ForEach-Object "
@@ -150,7 +230,6 @@ def chk_antivirus_ajour(is_admin=False):
                 state = int(hex_state, 16)
             except ValueError:
                 continue
-            # Décodage productState : octet 1 = état AV, octet 2 = état signatures
             av_actif = (state & 0x001000) != 0
             sig_obsoletes = (state & 0x000010) != 0
             if not av_actif:
@@ -164,7 +243,44 @@ def chk_antivirus_ajour(is_admin=False):
         if actifs_obsoletes:
             return _result("critique",
                            "Signatures obsolètes : " + ", ".join(actifs_obsoletes))
-        # Fallback Defender si rien d'utile via SC2
+
+    # 2) Fallback : services AV actifs + service update actif (Windows Server)
+    av_actifs = _detecter_av_par_services()
+    if av_actifs:
+        # Pour chaque AV détecté, vérifier si son service update tourne
+        out_srv, ok_srv = ps(
+            "Get-Service -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.Status -eq 'Running' } | "
+            "Select-Object -ExpandProperty Name")
+        services_actifs = set((out_srv or "").splitlines())
+        av_a_jour = []
+        av_sans_update = []
+        for av_nom in av_actifs:
+            update_srvs = AV_SERVICES_UPDATE.get(av_nom, [])
+            if not update_srvs:
+                # Pas de service update connu : on considère OK par défaut
+                av_a_jour.append(av_nom)
+                continue
+            update_actif = any(
+                any(s.lower() == u.lower() or s.lower().startswith(u.lower())
+                    for s in services_actifs)
+                for u in update_srvs)
+            if update_actif:
+                av_a_jour.append(av_nom)
+            else:
+                av_sans_update.append(av_nom)
+        if av_a_jour and not av_sans_update:
+            return _result("ok",
+                           f"Service de mise à jour actif : {', '.join(av_a_jour)}")
+        if av_a_jour and av_sans_update:
+            return _result("attention",
+                           f"À jour : {', '.join(av_a_jour)} ; "
+                           f"sans service update : {', '.join(av_sans_update)}")
+        if av_sans_update:
+            return _result("attention",
+                           f"Service de mise à jour inactif : {', '.join(av_sans_update)}")
+
+    # 3) Fallback Defender (Windows 10/11 avec Defender comme AV principal)
     out2, ok2 = ps("(Get-MpComputerStatus).AntivirusSignatureAge")
     if ok2 and out2.strip().isdigit():
         age = int(out2.strip())
