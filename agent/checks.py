@@ -118,9 +118,10 @@ def chk_firewall_actif(is_admin=False):
 # Windows qui indiquent que l'AV est ACTIF sur la machine. Utile en fallback
 # quand SecurityCenter2 n'est pas disponible (Windows Server avant 2022).
 #
-# Le matching se fait par préfixe insensible à la casse : si un service en
-# cours d'exécution commence par un de ces noms, l'AV est considéré comme
-# actif. On retient les noms les plus stables (souvent identiques sur 10 ans).
+# Le matching se fait par préfixe insensible à la casse. ATTENTION : on exige
+# au moins 4 caractères dans chaque entrée pour éviter les faux positifs
+# (un préfixe de 2-3 caractères comme "NS" matchait NSI, service Windows
+# standard, et faisait remonter un faux Norton — bug terrain ISOPLAST-SQL02).
 AV_SERVICES_CONNUS = {
     "Bitdefender": ["EPSecurityService", "EPProtectedService",
                     "EPIntegrationService", "VSSERV", "bdss"],
@@ -129,8 +130,9 @@ AV_SERVICES_CONNUS = {
     "Sophos":      ["Sophos Anti-Virus", "SAVService", "Sophos Endpoint",
                     "Sophos MCS Agent", "Sophos AutoUpdate"],
     "ESET":        ["ekrn", "ehttpsrv", "EraAgentSvc"],
-    "Kaspersky":   ["klnagent", "AVP", "kavfs", "KSDE"],
-    "Norton":      ["NortonSecurity", "ccSetMgr", "NS", "NortonInternetSecurity"],
+    "Kaspersky":   ["klnagent", "AVPSus", "AVPHost", "kavfs", "KSDE"],
+    "Norton":      ["NortonSecurity", "ccSetMgr", "NortonInternetSecurity",
+                    "Norton 360"],
     "Trend Micro": ["tmlisten", "ntrtscan", "TmCCSF", "TmPfw", "TmProxy"],
     "Avast":       ["avast! Antivirus", "AvastSvc", "aswbIDSAgent"],
     "AVG":         ["avgsvc", "AVGSvc", "avgntflt"],
@@ -150,6 +152,9 @@ def _detecter_av_par_services():
     Cherche dans les services Windows en cours d'exécution un AV connu.
     Retourne une liste de noms d'AV détectés (ex: ['Bitdefender', 'McAfee']).
     Utilise Get-Service (rapide, dispo sur tous les Windows).
+
+    GARDE-FOU : ignore les préfixes de moins de 4 caractères pour éviter les
+    faux positifs comme "NS" qui matchait NSI (service Windows natif).
     """
     out, ok = ps(
         "Get-Service -ErrorAction SilentlyContinue | "
@@ -161,7 +166,10 @@ def _detecter_av_par_services():
     detectes = []
     for nom_av, prefixes in AV_SERVICES_CONNUS.items():
         for prefix in prefixes:
-            # Match exact OU service commençant par le préfixe (cas génériques)
+            if len(prefix) < 4:
+                # Préfixe trop court : risque élevé de faux positif.
+                # On l'ignore au matching.
+                continue
             prefix_low = prefix.lower()
             if any(s.lower() == prefix_low or s.lower().startswith(prefix_low)
                    for s in services_actifs):
@@ -201,7 +209,7 @@ AV_SERVICES_UPDATE = {
     "McAfee":      ["McAfeeFrameworkUpdaterService", "mfemms"],
     "Sophos":      ["Sophos AutoUpdate"],
     "ESET":        ["ekrn"],  # ekrn fait à la fois protection et update
-    "Kaspersky":   ["AVP", "klnagent"],
+    "Kaspersky":   ["AVPSus", "AVPHost", "klnagent"],
     "Norton":      ["LiveUpdate"],
     "Trend Micro": ["TmListen"],
     "Avast":       ["AvastSvc"],
@@ -256,7 +264,8 @@ def chk_antivirus_ajour(is_admin=False):
         av_a_jour = []
         av_sans_update = []
         for av_nom in av_actifs:
-            update_srvs = AV_SERVICES_UPDATE.get(av_nom, [])
+            update_srvs = [u for u in AV_SERVICES_UPDATE.get(av_nom, [])
+                           if len(u) >= 4]  # garde-fou : pas de préfixe court
             if not update_srvs:
                 # Pas de service update connu : on considère OK par défaut
                 av_a_jour.append(av_nom)
