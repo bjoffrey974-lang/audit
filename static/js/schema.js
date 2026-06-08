@@ -86,6 +86,12 @@ window.SchemaApp = (function () {
 
   function drawNode(e) {
     const vis = (window.EQUIP_VISUAL || {})[e.type] || { color: "#6c757d", label: "?" };
+
+    // ===== Rendu spécial CLOUD pour les équipements de type "internet" =====
+    if (e.type === "internet") {
+      return drawCloudNode(e, vis);
+    }
+
     const g = el("g", {
       class: "schema-node",
       transform: `translate(${e.pos_x || 0},${e.pos_y || 0})`,
@@ -131,12 +137,86 @@ window.SchemaApp = (function () {
     svg.appendChild(g);
   }
 
+  // ===== Rendu spécial CLOUD (forme de nuage) pour Internet / FAI =====
+  // Largeur 180 × hauteur 100 (un peu plus grand que les autres boîtes).
+  // Le nom de l'équipement (ex: "FAI ZEOP") est affiché en GROS au centre,
+  // et "INTERNET" apparaît en petit en haut comme étiquette de type.
+  function drawCloudNode(e, vis) {
+    const W = 180, H = 100;
+    const g = el("g", {
+      class: "schema-node schema-cloud",
+      transform: `translate(${e.pos_x || 0},${e.pos_y || 0})`,
+      "data-eq-id": e.id,
+    });
+
+    // Forme nuage : composition de cercles + rectangle arrondi en base
+    // Couleur bleu clair pâle pour évoquer le ciel/internet
+    const FILL_LIGHT = "#e3f2fd";   // bleu très clair (fond)
+    const STROKE = "#1976d2";       // bleu moyen (contour)
+    const TEXT_DARK = "#0d47a1";    // bleu foncé (texte)
+
+    // Chemin SVG d'un nuage stylisé. Composition de courbes de Bézier
+    // formant le contour classique d'un cumulus.
+    const cloudPath = `
+      M 30 70
+      C 10 70, 5 50, 25 45
+      C 20 25, 50 15, 65 30
+      C 75 15, 110 15, 120 35
+      C 145 25, 170 45, 155 65
+      C 175 75, 165 95, 140 90
+      C 130 100, 50 100, 35 90
+      C 15 92, 10 78, 30 70
+      Z
+    `;
+    g.appendChild(el("path", {
+      d: cloudPath,
+      fill: FILL_LIGHT,
+      stroke: STROKE,
+      "stroke-width": 2,
+    }));
+
+    // Étiquette "INTERNET" en petit en haut
+    g.appendChild(text(90, 35, "INTERNET", {
+      "text-anchor": "middle", "font-size": "9",
+      "font-weight": "bold", fill: STROKE,
+      "letter-spacing": "1.5",
+    }));
+
+    // Nom du FAI en GROS au centre (ce que voit le client en premier)
+    const nomAffiche = e.nom_hote || vis.label || "FAI";
+    g.appendChild(text(90, 60, truncate(nomAffiche, 16), {
+      "text-anchor": "middle", "font-size": "15",
+      "font-weight": "bold", fill: TEXT_DARK,
+    }));
+
+    // Sous-titre : IP publique si dispo, sinon vide
+    if (e.ip) {
+      g.appendChild(text(90, 78, truncate(e.ip, 18), {
+        "text-anchor": "middle", "font-size": "9", fill: "#546e7a",
+      }));
+    }
+
+    // Interactions (drag & double-clic comme les autres)
+    makeDraggable(g, e);
+    g.addEventListener("dblclick", () => {
+      if (window.AppLogic) window.AppLogic.openEqModal(e.id);
+    });
+    svg.appendChild(g);
+  }
+
+  // Calcule le point central d'un équipement (où les liaisons s'attachent).
+  // La taille dépend du type : le cloud Internet est 180x100, les autres 120x80.
+  function centerOf(e) {
+    const isCloud = e.type === "internet";
+    const w = isCloud ? 180 : 120;
+    const h = isCloud ? 100 : 80;
+    return { x: (e.pos_x || 0) + w / 2, y: (e.pos_y || 0) + h / 2 };
+  }
+
   // Vue logique : lien pointillé gris "hébergé par" (VM -> hyperviseur)
   function drawHostLink(vm, host) {
-    const x1 = (vm.pos_x || 0) + 60;
-    const y1 = (vm.pos_y || 0) + 40;
-    const x2 = (host.pos_x || 0) + 60;
-    const y2 = (host.pos_y || 0) + 40;
+    const a = centerOf(vm), b = centerOf(host);
+    const x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y;
     svg.appendChild(el("line", {
       x1, y1, x2, y2,
       stroke: "#adb5bd", "stroke-width": 1.5,
@@ -183,10 +263,8 @@ window.SchemaApp = (function () {
     const s = eqById[l.source_id];
     const d = eqById[l.dest_id];
     if (!s || !d) return;
-    const x1 = (s.pos_x || 0) + 60;
-    const y1 = (s.pos_y || 0) + 40;
-    const x2 = (d.pos_x || 0) + 60;
-    const y2 = (d.pos_y || 0) + 40;
+    const a = centerOf(s), b = centerOf(d);
+    const x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y;
     let stroke = "#0d6efd", dash = "";
     if (l.type === "wifi") { stroke = "#20c997"; dash = "6,4"; }
     else if (l.type === "fibre") { stroke = "#ffc107"; }
