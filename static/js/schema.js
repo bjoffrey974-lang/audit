@@ -12,18 +12,21 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 window.SchemaApp = (function () {
   let equipements = [];
   let liaisons = [];
+  let sites = [];
   let vue = "logique";
   const svg = document.getElementById("schema_svg");
   if (!svg) return null;
 
   // -------------------- Chargement --------------------
   async function load() {
-    const [eqs, ls] = await Promise.all([
+    const [eqs, ls, auditData] = await Promise.all([
       fetch(`/api/audit/${window.AUDIT_ID}/equipements`).then(r => r.json()),
       fetch(`/api/audit/${window.AUDIT_ID}/liaisons`).then(r => r.json()),
+      fetch(`/api/audit/${window.AUDIT_ID}`).then(r => r.json()),
     ]);
     equipements = eqs;
     liaisons = ls;
+    sites = auditData.sites || [];
     render();
     // Notifier l'app pour qu'elle reconstruise les listes
     document.dispatchEvent(new CustomEvent("schema:loaded", {
@@ -259,25 +262,73 @@ window.SchemaApp = (function () {
     }));
   }
 
+  // Cherche le label WAN à afficher sur un lien.
+  // Si l'un des 2 équipements est de type "internet", on cherche le
+  // site_id de l'AUTRE équipement (la box, la passerelle...) et on lit
+  // son type_connexion. Affiche "WAN" par défaut si rien n'est renseigné.
+  // Retourne {label, isWan} où isWan vrai = lien sortant vers Internet.
+  function getWanLabel(s, d) {
+    const sIsNet = s.type === "internet";
+    const dIsNet = d.type === "internet";
+    if (!sIsNet && !dIsNet) return { label: null, isWan: false };
+    // L'équipement local = celui qui n'est pas Internet
+    const local = sIsNet ? d : s;
+    // Cherche le site associé à l'équipement local
+    const site = sites.find(st => st.id === local.site_id);
+    // Type de connexion (fibre, ADSL...) — peut être vide
+    const typeConnex = site && site.type_connexion ? site.type_connexion.trim() : "";
+    // Capitalisation propre : "fibre" -> "Fibre", "4G/5G" -> "4G/5G"
+    let label = typeConnex
+      ? typeConnex.charAt(0).toUpperCase() + typeConnex.slice(1)
+      : "WAN";
+    return { label, isWan: true };
+  }
+
   function drawLiaison(l, eqById) {
     const s = eqById[l.source_id];
     const d = eqById[l.dest_id];
     if (!s || !d) return;
     const a = centerOf(s), b = centerOf(d);
     const x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y;
-    let stroke = "#0d6efd", dash = "";
+    let stroke = "#0d6efd", dash = "", strokeWidth = 2;
     if (l.type === "wifi") { stroke = "#20c997"; dash = "6,4"; }
     else if (l.type === "fibre") { stroke = "#ffc107"; }
     else if (l.type === "vpn" || l.type === "sdwan") {
       stroke = "#6610f2"; dash = "4,3";
     } else if (l.type === "sip-trunk") { stroke = "#d63384"; }
+
+    // --- Cas spécial WAN (lien vers Internet) ---
+    const wan = getWanLabel(s, d);
+    if (wan.isWan) {
+      // Lien WAN : un peu plus épais et couleur orange (continuité visuelle
+      // avec le rendu existant pour ces liens externes).
+      stroke = "#fd9826";
+      strokeWidth = 3;
+      dash = "";
+    }
+
     svg.appendChild(el("line", {
       x1, y1, x2, y2,
-      stroke, "stroke-width": 2,
+      stroke, "stroke-width": strokeWidth,
       "stroke-dasharray": dash,
       "data-liaison-id": l.id,
     }));
-    if (l.vlan || l.debit) {
+
+    // --- Label WAN prioritaire (type connexion site) ---
+    if (wan.isWan && wan.label) {
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      // Largeur du fond adaptée au label (8 px par char + marge)
+      const w = Math.max(56, wan.label.length * 7 + 16);
+      svg.appendChild(el("rect", {
+        x: mx - w / 2, y: my - 9, width: w, height: 16, rx: 4,
+        fill: "white", stroke, "stroke-width": 1, opacity: 0.95,
+      }));
+      svg.appendChild(text(mx, my + 1, wan.label, {
+        "text-anchor": "middle", "font-size": "11",
+        "font-weight": "bold", fill: stroke,
+      }));
+    } else if (l.vlan || l.debit) {
+      // Label classique (vlan / débit) pour les autres liens
       const label = [l.vlan, l.debit].filter(Boolean).join(" ");
       const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
       svg.appendChild(el("rect", {
