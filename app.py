@@ -497,6 +497,49 @@ def create_app():
         db.session.commit()
         return jsonify({"ok": True})
 
+    @app.route("/api/conformite/<int:conf_id>/controle/<controle_id>/commentaire",
+               methods=["PATCH"])
+    def api_conformite_commentaire(conf_id, controle_id):
+        """
+        Met à jour le commentaire d'auditeur sur un contrôle précis d'un
+        bilan de conformité. Le commentaire est stocké dans le dictionnaire
+        JSON du contrôle, sous la clé "commentaire_auditeur".
+
+        Body : {"commentaire": "texte libre, max 2000 chars"}
+        - Une chaîne vide ou None supprime le commentaire (clé retirée).
+        - Le contrôle doit exister dans resultats_json (id correspondant).
+        """
+        import json as _json
+        c = Conformite.query.get_or_404(conf_id)
+        payload = request.get_json(silent=True) or {}
+        commentaire = (payload.get("commentaire") or "").strip()
+        # Limite raisonnable pour éviter qu'un mauvais usage pollue le JSON
+        if len(commentaire) > 2000:
+            return jsonify({"error": "Commentaire trop long (max 2000 caractères)"}), 400
+
+        try:
+            resultats = _json.loads(c.resultats_json) if c.resultats_json else []
+        except Exception:
+            return jsonify({"error": "resultats_json corrompu"}), 500
+
+        trouve = False
+        for r in resultats:
+            if r.get("id") == controle_id:
+                if commentaire:
+                    r["commentaire_auditeur"] = commentaire
+                else:
+                    # Suppression propre : on retire la clé si elle existait
+                    r.pop("commentaire_auditeur", None)
+                trouve = True
+                break
+
+        if not trouve:
+            return jsonify({"error": f"Contrôle '{controle_id}' introuvable"}), 404
+
+        c.resultats_json = _json.dumps(resultats, ensure_ascii=False)
+        db.session.commit()
+        return jsonify({"ok": True, "commentaire": commentaire})
+
     # ------------------------------------------------------------------------
     # EXPORTS
     # ------------------------------------------------------------------------

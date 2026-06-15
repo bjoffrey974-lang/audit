@@ -499,6 +499,9 @@ def generate_pdf(audit):
             statut_lbl = {"ok": "Conforme", "attention": "Attention",
                           "critique": "Critique", "indetermine": "Indéterminé",
                           "na": "N/A"}
+            # On note les index de lignes "commentaire" pour les styliser
+            # ensuite (italique + gris + colspan).
+            commentaire_rows = []
             for r in resultats:
                 ctrl = controle_by_id(r.get("id")) or {}
                 data.append([
@@ -507,7 +510,13 @@ def generate_pdf(audit):
                     ctrl.get("anssi", "")[:30],
                     (r.get("detail") or "")[:40],
                 ])
-            story.append(_make_data_table(data))
+                comm = (r.get("commentaire_auditeur") or "").strip()
+                if comm:
+                    # Ligne suivante : commentaire auditeur en italique
+                    commentaire_rows.append(len(data))  # index de la ligne à venir
+                    data.append([f"✏️  {comm}", "", "", ""])
+            # Construction de la table avec style enrichi pour les commentaires
+            story.append(_make_conformite_table(data, commentaire_rows))
 
         # ----- Annexes : détails collectés par l'agent (winaudit-like) -----
         machines_avec_details = [c for c in audit.conformites
@@ -659,6 +668,43 @@ def _make_data_table(data):
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
     ]))
+    return t
+
+
+def _make_conformite_table(data, commentaire_rows):
+    """
+    Table de conformité avec lignes spéciales pour les commentaires
+    d'auditeur : italique, gris, fusionnées sur les 4 colonnes.
+
+    commentaire_rows : liste d'indices (1-based, header en 0) des lignes
+    qui contiennent un commentaire d'auditeur.
+    """
+    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib import colors
+    t = Table(data, repeatRows=1)
+    base_styles = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0d6efd")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dee2e6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]
+    # Style spécifique pour chaque ligne "commentaire" :
+    # - SPAN sur les 4 colonnes (le commentaire est dans la 1re cellule)
+    # - Italique + couleur grise
+    # - Padding gauche renforcé pour montrer la subordination visuelle
+    for row_idx in commentaire_rows:
+        base_styles.extend([
+            ("SPAN", (0, row_idx), (-1, row_idx)),
+            ("FONTNAME", (0, row_idx), (-1, row_idx), "Helvetica-Oblique"),
+            ("TEXTCOLOR", (0, row_idx), (-1, row_idx), colors.HexColor("#6c757d")),
+            ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#f8f9fa")),
+            ("LEFTPADDING", (0, row_idx), (-1, row_idx), 20),
+        ])
+    t.setStyle(TableStyle(base_styles))
     return t
 
 

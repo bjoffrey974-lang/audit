@@ -841,11 +841,28 @@ window.AppLogic = (function () {
     (conf.resultats || []).forEach(r => {
       const sv = STATUT_VISUAL[r.statut] || STATUT_VISUAL.indetermine;
       const lbl = (window.CONF_LABELS && window.CONF_LABELS[r.id]) || r.id;
-      rows += `<tr>
+      const comm = r.commentaire_auditeur || "";
+      // Une ligne par contrôle + une ligne "commentaire auditeur" sous-jacente
+      // (toujours présente, vide par défaut, éditable, auto-save au blur).
+      rows += `<tr class="conf-row" data-conf-id="${conf.id}" data-ctrl-id="${escape(r.id)}">
         <td><span class="conf-dot" style="background:${sv.color}">${sv.icon}</span>
             ${escape(lbl)}</td>
         <td style="color:${sv.color};font-weight:600">${sv.label}</td>
         <td><small class="muted">${escape(r.detail || "")}</small></td>
+      </tr>
+      <tr class="conf-row-comment">
+        <td colspan="3" style="padding:2px 8px 8px 32px;border-top:none">
+          <input type="text"
+                 class="conf-comment-input"
+                 placeholder="✏️ Commentaire auditeur (optionnel) — appuyez sur Tab ou cliquez ailleurs pour sauvegarder"
+                 value="${escape(comm)}"
+                 maxlength="2000"
+                 data-conf-id="${conf.id}"
+                 data-ctrl-id="${escape(r.id)}"
+                 style="width:100%;font-style:italic;font-size:12px;color:#666;
+                        border:none;border-bottom:1px dashed #ccc;background:transparent;
+                        padding:2px 4px;outline:none">
+        </td>
       </tr>`;
     });
     // Bloc "Détails" (winaudit-like) — affiché seulement si has_details
@@ -897,6 +914,37 @@ window.AppLogic = (function () {
     if (togBtn) {
       togBtn.addEventListener("click", () => toggleConfDetails(conf.id, togBtn));
     }
+    // Handlers auto-save sur les champs "commentaire auditeur".
+    // Au blur (Tab / clic ailleurs), si la valeur a changé, on PATCH.
+    // Visuellement, on indique succès par un bord vert qui fond vers gris.
+    div.querySelectorAll(".conf-comment-input").forEach(input => {
+      input.dataset.originalValue = input.value;
+      input.addEventListener("blur", () => {
+        const val = input.value.trim();
+        if (val === (input.dataset.originalValue || "").trim()) return;
+        const cid = input.dataset.confId;
+        const ctrl = input.dataset.ctrlId;
+        fetch(`/api/conformite/${cid}/controle/${encodeURIComponent(ctrl)}/commentaire`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ commentaire: val }),
+        }).then(r => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          input.dataset.originalValue = val;
+          // Feedback visuel : bordure verte 800ms puis retour normal
+          input.style.borderBottomColor = "#28a745";
+          input.style.borderBottomStyle = "solid";
+          setTimeout(() => {
+            input.style.borderBottomColor = "#ccc";
+            input.style.borderBottomStyle = "dashed";
+          }, 800);
+        }).catch(err => {
+          input.style.borderBottomColor = "#dc3545";
+          input.style.borderBottomStyle = "solid";
+          alert("Échec de la sauvegarde du commentaire : " + err.message);
+        });
+      });
+    });
     return div;
   }
 
