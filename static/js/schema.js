@@ -9,6 +9,133 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// ===== Bibliothèque d'icônes SVG par type d'équipement =====
+// Chaque icône est conçue pour rentrer dans un viewBox 24x16 (4:3 horizontal)
+// et s'affiche dans le bandeau coloré supérieur des boîtes (à gauche du texte).
+// Toutes les formes sont en stroke="white" / fill="none" (le bandeau est
+// déjà coloré), avec stroke-width 1.4 pour bonne visibilité.
+//
+// Les icônes sont des chaînes (markup SVG) injectées via innerHTML dans un <g>
+// car createElementNS est verbeux pour des formes complexes.
+const SCHEMA_ICONS = {
+  modem_box:
+    '<rect x="3" y="6" width="18" height="8" rx="1" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="6" y1="6" x2="6" y2="2" stroke="white" stroke-width="1.4"/>' +
+    '<line x1="18" y1="6" x2="18" y2="2" stroke="white" stroke-width="1.4"/>' +
+    '<circle cx="7" cy="10" r="0.8" fill="white"/>' +
+    '<circle cx="10" cy="10" r="0.8" fill="white"/>' +
+    '<circle cx="13" cy="10" r="0.8" fill="white"/>',
+
+  firewall:
+    '<rect x="3" y="3" width="18" height="10" rx="0.5" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="3" y1="7" x2="21" y2="7" stroke="white" stroke-width="1"/>' +
+    '<line x1="3" y1="10" x2="21" y2="10" stroke="white" stroke-width="1"/>' +
+    '<line x1="9" y1="3" x2="9" y2="7" stroke="white" stroke-width="1"/>' +
+    '<line x1="15" y1="3" x2="15" y2="7" stroke="white" stroke-width="1"/>' +
+    '<line x1="6" y1="7" x2="6" y2="10" stroke="white" stroke-width="1"/>' +
+    '<line x1="12" y1="7" x2="12" y2="10" stroke="white" stroke-width="1"/>' +
+    '<line x1="18" y1="7" x2="18" y2="10" stroke="white" stroke-width="1"/>' +
+    '<line x1="9" y1="10" x2="9" y2="13" stroke="white" stroke-width="1"/>' +
+    '<line x1="15" y1="10" x2="15" y2="13" stroke="white" stroke-width="1"/>',
+
+  routeur:
+    '<rect x="4" y="7" width="16" height="6" rx="1" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="7" y1="7" x2="5" y2="3" stroke="white" stroke-width="1.4" stroke-linecap="round"/>' +
+    '<line x1="17" y1="7" x2="19" y2="3" stroke="white" stroke-width="1.4" stroke-linecap="round"/>' +
+    '<circle cx="8" cy="10" r="0.7" fill="white"/>' +
+    '<circle cx="12" cy="10" r="0.7" fill="white"/>' +
+    '<circle cx="16" cy="10" r="0.7" fill="white"/>',
+
+  switch:
+    '<rect x="2" y="5" width="20" height="6" rx="0.5" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<rect x="4" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="6.5" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="9" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="11.5" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="14" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="16.5" y="7" width="1.5" height="2" fill="white"/>' +
+    '<rect x="19" y="7" width="1.5" height="2" fill="white"/>',
+
+  ap_wifi:
+    '<path d="M 4 14 Q 12 6 20 14" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<path d="M 7 12 Q 12 7 17 12" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<circle cx="12" cy="11" r="1" fill="white"/>' +
+    '<line x1="12" y1="14" x2="12" y2="15" stroke="white" stroke-width="1.4"/>',
+
+  serveur_physique:
+    '<rect x="2" y="4" width="20" height="4" rx="0.5" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<rect x="2" y="9" width="20" height="4" rx="0.5" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<circle cx="4.5" cy="6" r="0.6" fill="white"/>' +
+    '<rect x="6" y="5.5" width="8" height="1" fill="white"/>' +
+    '<circle cx="4.5" cy="11" r="0.6" fill="white"/>' +
+    '<rect x="6" y="10.5" width="8" height="1" fill="white"/>',
+
+  hyperviseur:
+    '<rect x="2" y="4" width="20" height="4" rx="0.5" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<rect x="2" y="9" width="20" height="4" rx="0.5" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<circle cx="4.5" cy="6" r="0.6" fill="white"/>' +
+    '<circle cx="4.5" cy="11" r="0.6" fill="white"/>' +
+    '<rect x="15" y="5" width="2.5" height="2.5" stroke="white" stroke-width="0.8" fill="none"/>' +
+    '<rect x="18" y="5" width="2.5" height="2.5" stroke="white" stroke-width="0.8" fill="none"/>' +
+    '<rect x="15" y="10" width="2.5" height="2.5" stroke="white" stroke-width="0.8" fill="none"/>' +
+    '<rect x="18" y="10" width="2.5" height="2.5" stroke="white" stroke-width="0.8" fill="none"/>',
+
+  serveur_virtuel:
+    '<rect x="4" y="3" width="16" height="11" rx="1.5" stroke="white" stroke-width="1.4" fill="none" stroke-dasharray="2,1"/>' +
+    '<text x="12" y="11" text-anchor="middle" font-size="6" font-weight="bold" fill="white" font-family="Arial">VM</text>',
+
+  nas:
+    '<rect x="6" y="3" width="12" height="12" rx="1" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="6" y1="9" x2="18" y2="9" stroke="white" stroke-width="1"/>' +
+    '<circle cx="9" cy="6" r="0.5" fill="white"/>' +
+    '<rect x="11" y="5.5" width="5" height="1" fill="white"/>' +
+    '<circle cx="9" cy="12" r="0.5" fill="white"/>' +
+    '<rect x="11" y="11.5" width="5" height="1" fill="white"/>',
+
+  ipbx:
+    '<path d="M 5 5 L 9 5 L 10 8 L 8 9 Q 10 12 13 14 L 14 12 L 17 13 L 17 17"' +
+      ' stroke="white" stroke-width="1.4" fill="none" stroke-linejoin="round"/>',
+
+  imprimante:
+    '<rect x="4" y="7" width="16" height="6" rx="1" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<rect x="7" y="3" width="10" height="4" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<rect x="7" y="11" width="10" height="3" stroke="white" stroke-width="1.2" fill="none"/>' +
+    '<circle cx="17" cy="10" r="0.6" fill="white"/>',
+
+  // === Postes : 2 variantes (Mac vs PC) ===
+  poste_mac:
+    '<rect x="3" y="3" width="18" height="9" rx="1.5" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="10" y1="12" x2="14" y2="12" stroke="white" stroke-width="1.4"/>' +
+    '<line x1="9" y1="14" x2="15" y2="14" stroke="white" stroke-width="1.4"/>' +
+    '<circle cx="12" cy="7" r="1.8" stroke="white" stroke-width="1" fill="none"/>',
+
+  poste_pc:
+    '<rect x="3" y="3" width="18" height="9" rx="1" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<line x1="3" y1="10" x2="21" y2="10" stroke="white" stroke-width="1"/>' +
+    '<rect x="10" y="12" width="4" height="2" fill="white"/>' +
+    '<line x1="8" y1="14" x2="16" y2="14" stroke="white" stroke-width="1.4"/>',
+
+  onduleur:
+    '<rect x="4" y="4" width="14" height="10" rx="0.5" stroke="white" stroke-width="1.4" fill="none"/>' +
+    '<rect x="18" y="7" width="2" height="4" fill="white"/>' +
+    '<path d="M 11 5 L 9 9 L 11 9 L 9 13 L 14 8 L 12 8 L 14 5 Z"' +
+      ' fill="white" stroke="none"/>',
+};
+
+// Choisit la bonne clé d'icône pour un équipement.
+// Cas spécial : type=poste → on regarde l'OS pour distinguer Mac vs PC.
+function pickIconKey(e) {
+  if (e.type === "poste") {
+    const os = (e.os || "").toLowerCase();
+    const marque = (e.marque || "").toLowerCase();
+    if (os.includes("macos") || os.includes("mac os") || marque === "apple") {
+      return "poste_mac";
+    }
+    return "poste_pc";
+  }
+  return e.type in SCHEMA_ICONS ? e.type : null;
+}
+
 window.SchemaApp = (function () {
   let equipements = [];
   let liaisons = [];
@@ -112,10 +239,30 @@ window.SchemaApp = (function () {
     g.appendChild(el("rect", {
       y: 14, width: 120, height: 8, fill: vis.color,
     }));
-    g.appendChild(text(60, 16, (vis.label || "").toUpperCase(), {
-      "text-anchor": "middle", "font-size": "10",
-      "font-weight": "bold", fill: "white",
-    }));
+
+    // --- Icône SVG dans le bandeau (à gauche) ---
+    // Si un pictogramme existe pour ce type, on l'affiche dans un sous-groupe
+    // positionné en haut-gauche du bandeau. Sinon, le texte reste centré
+    // comme avant (compatibilité totale).
+    const iconKey = pickIconKey(e);
+    const iconMarkup = iconKey ? SCHEMA_ICONS[iconKey] : null;
+    if (iconMarkup) {
+      // Icône dessinée sur 24x16, posée à (4, 3) dans la boîte (bandeau y=0..22)
+      const iconG = el("g", { transform: "translate(4, 3)" });
+      iconG.innerHTML = iconMarkup;
+      g.appendChild(iconG);
+      // Texte décalé à droite pour laisser place à l'icône (centré sur x≈74)
+      g.appendChild(text(74, 16, (vis.label || "").toUpperCase(), {
+        "text-anchor": "middle", "font-size": "10",
+        "font-weight": "bold", fill: "white",
+      }));
+    } else {
+      // Pas d'icône (cas "autre" ou type inconnu) : texte centré classique
+      g.appendChild(text(60, 16, (vis.label || "").toUpperCase(), {
+        "text-anchor": "middle", "font-size": "10",
+        "font-weight": "bold", fill: "white",
+      }));
+    }
     g.appendChild(text(60, 42, truncate(e.nom_hote || vis.label, 18), {
       "text-anchor": "middle", "font-size": "11", "font-weight": "bold",
     }));
