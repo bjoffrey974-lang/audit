@@ -842,16 +842,37 @@ window.AppLogic = (function () {
       const sv = STATUT_VISUAL[r.statut] || STATUT_VISUAL.indetermine;
       const lbl = (window.CONF_LABELS && window.CONF_LABELS[r.id]) || r.id;
       const comm = r.commentaire_auditeur || "";
+      // Cellule ANSSI : lien cliquable vers le PDF officiel si la référence
+      // a une URL. Sinon affichage libelle seul (cas "bonne pratique d'expl.").
+      let anssiCell = '<small class="muted">—</small>';
+      if (r.anssi && typeof r.anssi === "object") {
+        const ref = r.anssi.ref || "";
+        const lib = r.anssi.libelle || "";
+        const url = r.anssi.url || "";
+        if (ref && url) {
+          anssiCell = `<a href="${escape(url)}" target="_blank" rel="noopener"
+                          title="${escape(lib)}"
+                          style="color:#0d6efd;font-weight:600;text-decoration:none">
+                         📘 ${escape(ref)}
+                       </a>
+                       <br><small class="muted" style="font-size:10px">
+                         ${escape(lib.substring(0, 60))}${lib.length > 60 ? "…" : ""}
+                       </small>`;
+        } else if (lib) {
+          anssiCell = `<small class="muted">${escape(lib)}</small>`;
+        }
+      }
       // Une ligne par contrôle + une ligne "commentaire auditeur" sous-jacente
       // (toujours présente, vide par défaut, éditable, auto-save au blur).
       rows += `<tr class="conf-row" data-conf-id="${conf.id}" data-ctrl-id="${escape(r.id)}">
         <td><span class="conf-dot" style="background:${sv.color}">${sv.icon}</span>
             ${escape(lbl)}</td>
         <td style="color:${sv.color};font-weight:600">${sv.label}</td>
+        <td>${anssiCell}</td>
         <td><small class="muted">${escape(r.detail || "")}</small></td>
       </tr>
       <tr class="conf-row-comment">
-        <td colspan="3" style="padding:2px 8px 8px 32px;border-top:none">
+        <td colspan="4" style="padding:2px 8px 8px 32px;border-top:none">
           <input type="text"
                  class="conf-comment-input"
                  placeholder="✏️ Commentaire auditeur (optionnel) — appuyez sur Tab ou cliquez ailleurs pour sauvegarder"
@@ -899,7 +920,7 @@ window.AppLogic = (function () {
       <small class="muted">Collecté le ${escape(conf.date_collecte || "?")}
         · ${conf.nb_critiques} point(s) critique(s)</small>
       <table class="table" style="margin-top:8px">
-        <thead><tr><th>Contrôle</th><th>Statut</th><th>Détail</th></tr></thead>
+        <thead><tr><th>Contrôle</th><th>Statut</th><th>Réf. ANSSI</th><th>Détail</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${detailsBlock}`;

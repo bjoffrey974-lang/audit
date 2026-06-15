@@ -408,6 +408,7 @@ def create_app():
     @app.route("/api/audit/<int:audit_id>/conformites", methods=["GET"])
     def api_conformites_list(audit_id):
         import json as _json
+        from conformite_ref import controle_by_id
         Audit.query.get_or_404(audit_id)
         items = Conformite.query.filter_by(audit_id=audit_id).all()
         out = []
@@ -416,6 +417,13 @@ def create_app():
                 resultats = _json.loads(c.resultats_json) if c.resultats_json else []
             except Exception:
                 resultats = []
+            # Enrichir chaque résultat avec sa référence ANSSI (clé "anssi")
+            # pour que le front puisse afficher un lien cliquable sans devoir
+            # rappeler le référentiel côté JS.
+            for r in resultats:
+                ctrl = controle_by_id(r.get("id"))
+                if ctrl and isinstance(ctrl.get("anssi"), dict):
+                    r["anssi"] = ctrl["anssi"]
             # Résumé compact des détails (compteurs uniquement)
             details_counts = None
             has_details = False

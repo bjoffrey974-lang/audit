@@ -495,6 +495,14 @@ def generate_pdf(audit):
                 resultats = _json.loads(conf.resultats_json) if conf.resultats_json else []
             except Exception:
                 resultats = []
+            # Style commun pour les cellules Paragraph (pour permettre les liens)
+            cell_style = ParagraphStyle(
+                "cell", parent=normal, fontSize=8, leading=10
+            )
+            link_style = ParagraphStyle(
+                "anssi_link", parent=cell_style,
+                textColor=colors.HexColor("#0d6efd"),
+            )
             data = [["Contrôle", "Statut", "Réf. ANSSI", "Détail"]]
             statut_lbl = {"ok": "Conforme", "attention": "Attention",
                           "critique": "Critique", "indetermine": "Indéterminé",
@@ -504,10 +512,30 @@ def generate_pdf(audit):
             commentaire_rows = []
             for r in resultats:
                 ctrl = controle_by_id(r.get("id")) or {}
+                anssi = ctrl.get("anssi") or {}
+                # La référence ANSSI peut être un dict {ref, libelle, url} (nouveau
+                # format) ou une chaîne (ancien format, pour compat).
+                if isinstance(anssi, dict):
+                    ref = anssi.get("ref", "")
+                    libelle = anssi.get("libelle", "")
+                    url = anssi.get("url", "")
+                    if ref and url:
+                        # Texte cliquable : "R17 — Activer le pare-feu local"
+                        ref_text = f"<link href='{url}'><b>{ref}</b></link>"
+                        if libelle:
+                            ref_text += f" — {libelle[:40]}"
+                        anssi_cell = Paragraph(ref_text, link_style)
+                    elif libelle:
+                        anssi_cell = Paragraph(libelle[:50], cell_style)
+                    else:
+                        anssi_cell = ""
+                else:
+                    # Compatibilité ancien format (chaîne libre)
+                    anssi_cell = (anssi or "")[:50]
                 data.append([
                     ctrl.get("libelle", r.get("id", "?")),
                     statut_lbl.get(r.get("statut"), r.get("statut", "?")),
-                    ctrl.get("anssi", "")[:30],
+                    anssi_cell,
                     (r.get("detail") or "")[:40],
                 ])
                 comm = (r.get("commentaire_auditeur") or "").strip()

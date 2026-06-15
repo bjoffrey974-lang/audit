@@ -1,17 +1,22 @@
 """
-Référentiel de conformité sécurité — postes et serveurs Windows.
+Référentiel de conformité sécurité — postes et serveurs Windows/macOS.
 
 Approche "maison" (pragmatique PME) avec mapping vers le Guide d'hygiène
-informatique de l'ANSSI (42 mesures, v2017). Partagé entre la plateforme
-d'audit et l'agent de collecte Windows.
+informatique de l'ANSSI (42 règles, version 2017). Partagé entre la
+plateforme d'audit et l'agent de collecte.
 
 Chaque contrôle a :
   - id            : identifiant stable (clé)
   - libelle       : intitulé lisible
   - categorie     : regroupement d'affichage
-  - anssi         : mesure(s) ANSSI de référence (texte court)
+  - anssi         : référence ANSSI structurée (voir ANSSI_REF ci-dessous)
   - profil        : "poste" | "serveur" | "both" (à qui s'applique le contrôle)
   - criticite     : poids du contrôle s'il échoue : "critique" | "majeur" | "mineur"
+
+Le champ `anssi` est un dict {ref, libelle, url} où :
+  - ref     : numéro de règle ANSSI ("R8", "R17", "R29"...) ou section ("VIII")
+  - libelle : libellé court de la règle ANSSI (utilisé pour l'affichage)
+  - url     : lien vers le PDF officiel ANSSI (page d'ancre si possible)
 
 Le résultat d'un contrôle (rempli par l'agent) est l'un de :
   - "ok"           : conforme
@@ -27,51 +32,65 @@ STATUTS = ("ok", "attention", "critique", "indetermine", "na")
 # Poids pour le score (les "indetermine"/"na" sont exclus du calcul)
 POIDS_CRITICITE = {"critique": 3, "majeur": 2, "mineur": 1}
 
+# URL officielle du Guide d'hygiène informatique ANSSI (version 2017, 42 règles)
+ANSSI_GUIDE_URL = "https://messervices.cyber.gouv.fr/documents-guides/guide_hygiene_informatique_anssi.pdf"
+
+
+def anssi_ref(ref, libelle):
+    """Helper : construit une référence ANSSI structurée."""
+    return {"ref": ref, "libelle": libelle, "url": ANSSI_GUIDE_URL}
+
 
 REFERENTIEL = [
     # ---------------- Protection ----------------
     {
         "id": "firewall_actif",
-        "libelle": "Pare-feu Windows activé (tous profils)",
+        "libelle": "Pare-feu local activé (tous profils)",
         "categorie": "Protection",
-        "anssi": "Mesure 19 — Activer le pare-feu local",
+        "anssi": anssi_ref("R17",
+                           "Activer et configurer le pare-feu local des postes de travail"),
         "profil": "both", "criticite": "critique",
     },
     {
         "id": "antivirus_present",
         "libelle": "Antivirus présent et activé",
         "categorie": "Protection",
-        "anssi": "Mesure 22 — Déployer un outil anti-virus",
+        "anssi": anssi_ref("R14",
+                           "Mettre en place un niveau de sécurité minimal sur le parc"),
         "profil": "both", "criticite": "critique",
     },
     {
         "id": "antivirus_ajour",
         "libelle": "Signatures antivirus à jour",
         "categorie": "Protection",
-        "anssi": "Mesure 22 — Anti-virus à jour",
+        "anssi": anssi_ref("R14",
+                           "Mettre en place un niveau de sécurité minimal sur le parc"),
         "profil": "both", "criticite": "majeur",
     },
     {
         "id": "chiffrement_disque",
-        "libelle": "Chiffrement du disque (BitLocker) actif",
+        "libelle": "Chiffrement du disque (BitLocker / FileVault) actif",
         "categorie": "Protection",
-        "anssi": "Mesure 31 — Chiffrer les données sensibles / matériel perdable",
+        "anssi": anssi_ref("R14",
+                           "Chiffrer les partitions où sont stockées les données utilisateurs"),
         "profil": "both", "criticite": "majeur",
     },
 
     # ---------------- Mises à jour ----------------
     {
         "id": "maj_recentes",
-        "libelle": "Mises à jour Windows récentes (< 60 jours)",
+        "libelle": "Mises à jour récentes (< 60 jours)",
         "categorie": "Mises à jour",
-        "anssi": "Mesure 34 — Politique de mise à jour des composants",
+        "anssi": anssi_ref("VIII",
+                           "Maintenir le système d'information à jour"),
         "profil": "both", "criticite": "critique",
     },
     {
         "id": "os_supporte",
-        "libelle": "Version Windows encore supportée (pas en fin de vie)",
+        "libelle": "Système d'exploitation encore supporté (pas en fin de vie)",
         "categorie": "Mises à jour",
-        "anssi": "Mesure 35 — Anticiper la fin de maintenance des systèmes",
+        "anssi": anssi_ref("VIII",
+                           "Anticiper la fin de maintenance des composants"),
         "profil": "both", "criticite": "critique",
     },
 
@@ -80,51 +99,58 @@ REFERENTIEL = [
         "id": "admins_limites",
         "libelle": "Nombre de comptes administrateurs locaux maîtrisé",
         "categorie": "Comptes & accès",
-        "anssi": "Mesure 29 — Limiter les droits d'administration",
+        "anssi": anssi_ref("R29",
+                           "Limiter au strict besoin opérationnel les droits d'administration"),
         "profil": "both", "criticite": "majeur",
     },
     {
         "id": "admin_natif_desactive",
-        "libelle": "Compte 'Administrateur' natif désactivé ou renommé",
+        "libelle": "Compte 'Administrateur' / 'root' natif désactivé",
         "categorie": "Comptes & accès",
-        "anssi": "Mesure 10 — Gérer les comptes privilégiés",
+        "anssi": anssi_ref("R8",
+                           "Identifier nommément chaque personne accédant au système"),
         "profil": "both", "criticite": "majeur",
     },
     {
         "id": "mdp_jamais_expire",
         "libelle": "Pas de compte avec mot de passe sans expiration",
         "categorie": "Comptes & accès",
-        "anssi": "Mesure 7 — Politique de mot de passe",
+        "anssi": anssi_ref("R10",
+                           "Définir et vérifier des règles de choix et de dimensionnement des mots de passe"),
         "profil": "both", "criticite": "mineur",
     },
     {
         "id": "rdp_maitrise",
-        "libelle": "Bureau à distance (RDP) désactivé ou maîtrisé",
+        "libelle": "Bureau à distance (RDP / Screen Sharing) maîtrisé",
         "categorie": "Comptes & accès",
-        "anssi": "Mesure 28 — Administration via réseau dédié",
+        "anssi": anssi_ref("R28",
+                           "Utiliser un réseau dédié et cloisonné pour l'administration"),
         "profil": "both", "criticite": "majeur",
     },
 
     # ---------------- Configuration ----------------
     {
         "id": "uac_actif",
-        "libelle": "Contrôle de compte utilisateur (UAC) activé",
+        "libelle": "Contrôle de compte utilisateur (UAC / SIP) activé",
         "categorie": "Configuration",
-        "anssi": "Mesure 29 — Cloisonnement des privilèges",
+        "anssi": anssi_ref("R29",
+                           "Cloisonnement des privilèges utilisateur / administrateur"),
         "profil": "both", "criticite": "majeur",
     },
     {
         "id": "smbv1_desactive",
         "libelle": "SMBv1 désactivé (protocole obsolète)",
         "categorie": "Configuration",
-        "anssi": "Mesure 35 — Limiter les composants obsolètes",
+        "anssi": anssi_ref("VIII",
+                           "Limiter l'usage de composants logiciels obsolètes"),
         "profil": "both", "criticite": "critique",
     },
     {
         "id": "partages_maitrises",
         "libelle": "Partages réseau exposés maîtrisés",
         "categorie": "Configuration",
-        "anssi": "Mesure 40 — Maîtriser les flux réseau",
+        "anssi": anssi_ref("R9",
+                           "Attribuer les bons droits sur les ressources sensibles"),
         "profil": "both", "criticite": "mineur",
     },
 
@@ -133,14 +159,17 @@ REFERENTIEL = [
         "id": "espace_disque",
         "libelle": "Espace disque système suffisant (> 10%)",
         "categorie": "Système",
-        "anssi": "Bonne pratique d'exploitation",
+        # Pas de règle ANSSI directe : bonne pratique d'exploitation.
+        "anssi": {"ref": "", "libelle": "Bonne pratique d'exploitation",
+                  "url": ANSSI_GUIDE_URL},
         "profil": "both", "criticite": "mineur",
     },
     {
         "id": "uptime_raisonnable",
         "libelle": "Redémarrage récent (uptime < 30 jours)",
         "categorie": "Système",
-        "anssi": "Mesure 34 — Application effective des MAJ",
+        "anssi": anssi_ref("VIII",
+                           "Application effective des mises à jour"),
         "profil": "both", "criticite": "mineur",
     },
 
@@ -149,14 +178,16 @@ REFERENTIEL = [
         "id": "serveur_roles_documentes",
         "libelle": "Rôles serveur identifiés (AD/DNS/DHCP/fichiers…)",
         "categorie": "Serveur",
-        "anssi": "Mesure 2 — Cartographier le SI",
+        "anssi": anssi_ref("R4",
+                           "Identifier les informations et serveurs les plus sensibles, maintenir un schéma du réseau"),
         "profil": "serveur", "criticite": "mineur",
     },
     {
         "id": "serveur_sauvegarde",
         "libelle": "Sauvegarde du serveur en place",
         "categorie": "Serveur",
-        "anssi": "Mesure 37 — Sauvegarde des composants critiques",
+        "anssi": anssi_ref("R14",
+                           "Sauvegardes régulières stockées sur équipements déconnectés (niveau renforcé)"),
         "profil": "serveur", "criticite": "critique",
     },
 ]
