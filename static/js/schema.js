@@ -177,7 +177,10 @@ window.SchemaApp = (function () {
     const defs = el("defs");
     svg.appendChild(defs);
 
-    // Liaisons d'abord (en dessous)
+    // Groupes de sites (rectangles englobants) — dessinés EN PREMIER pour être en arrière-plan
+    drawSiteGroups();
+
+    // Liaisons d'abord (en dessous des équipements)
     const eqById = Object.fromEntries(equipements.map(e => [e.id, e]));
     liaisons.forEach(l => drawLiaison(l, eqById));
 
@@ -361,6 +364,69 @@ window.SchemaApp = (function () {
     const w = isCloud ? 180 : 120;
     const h = isCloud ? 100 : 80;
     return { x: (e.pos_x || 0) + w / 2, y: (e.pos_y || 0) + h / 2 };
+  }
+
+  // Dessine un rectangle englobant pour chaque site (regroupement visuel).
+  // Pour chaque site_id distinct présent sur les équipements, on calcule la
+  // bounding box des positions et on dessine un rectangle pointillé gris
+  // clair, posé EN ARRIÈRE-PLAN avant les équipements eux-mêmes.
+  function drawSiteGroups() {
+    // Indexer les équipements par site_id (ignorer ceux sans site)
+    const groups = {};
+    equipements.forEach(e => {
+      if (!e.site_id) return;
+      if (!groups[e.site_id]) groups[e.site_id] = [];
+      groups[e.site_id].push(e);
+    });
+
+    // Pour chaque groupe, calculer la bounding box + padding et dessiner
+    Object.entries(groups).forEach(([siteId, eqs]) => {
+      if (eqs.length < 1) return;
+      // Bounding box : prendre min/max des positions + tailles des boîtes
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      eqs.forEach(e => {
+        const isCloud = e.type === "internet";
+        const w = isCloud ? 180 : 120;
+        const h = isCloud ? 100 : 80;
+        const x = e.pos_x || 0, y = e.pos_y || 0;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x + w > maxX) maxX = x + w;
+        if (y + h > maxY) maxY = y + h;
+      });
+      // Padding interne pour l'aspect aéré
+      const PAD = 28, PAD_TOP = 36;  // un peu plus haut pour l'étiquette
+      const rx = minX - PAD;
+      const ry = minY - PAD_TOP;
+      const rw = (maxX - minX) + PAD * 2;
+      const rh = (maxY - minY) + PAD_TOP + PAD;
+
+      // Récupérer le nom du site (depuis la liste sites chargée par load())
+      const site = sites.find(s => s.id == siteId);
+      const siteName = site ? (site.nom || `Site #${siteId}`) : `Site #${siteId}`;
+
+      // Rectangle pointillé gris clair avec léger fill semi-transparent
+      svg.appendChild(el("rect", {
+        x: rx, y: ry, width: rw, height: rh, rx: 8,
+        fill: "#f8f9fa", "fill-opacity": "0.4",
+        stroke: "#adb5bd", "stroke-width": 1.5,
+        "stroke-dasharray": "6,4",
+        "data-site-group": siteId,
+      }));
+
+      // Étiquette du site en haut à gauche, avec un fond blanc opaque pour
+      // bien se détacher du rectangle pointillé.
+      const labelW = Math.max(80, siteName.length * 7 + 16);
+      svg.appendChild(el("rect", {
+        x: rx + 10, y: ry - 10, width: labelW, height: 20, rx: 4,
+        fill: "white",
+        stroke: "#adb5bd", "stroke-width": 1,
+      }));
+      svg.appendChild(text(rx + 10 + labelW / 2, ry + 4, siteName, {
+        "text-anchor": "middle", "font-size": "12",
+        "font-weight": "bold", fill: "#495057",
+      }));
+    });
   }
 
   // Vue logique : lien pointillé gris "hébergé par" (VM -> hyperviseur)
