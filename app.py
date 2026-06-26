@@ -551,11 +551,28 @@ def create_app():
     # ------------------------------------------------------------------------
     # EXPORTS
     # ------------------------------------------------------------------------
-    @app.route("/audit/<int:audit_id>/export/pdf")
+    @app.route("/audit/<int:audit_id>/export/pdf", methods=["GET", "POST"])
     def export_pdf(audit_id):
+        """
+        Génère le PDF d'audit.
+
+        En GET (lien direct) : PDF complet SANS le schéma (pour rétrocompatibilité
+        des anciens favoris).
+
+        En POST (depuis l'UI) : PDF complet AVEC une page dédiée au schéma
+        topologique. Le SVG du schéma est attendu dans le body JSON sous la clé
+        "schema_svg" (string sérialisée). Format paysage pour la page schéma.
+        """
         from exports import generate_pdf
         audit = Audit.query.get_or_404(audit_id)
-        buf = generate_pdf(audit)
+
+        # SVG passé en POST ?
+        schema_svg = None
+        if request.method == "POST":
+            payload = request.get_json(silent=True) or {}
+            schema_svg = payload.get("schema_svg") or None
+
+        buf = generate_pdf(audit, schema_svg=schema_svg)
         filename = f"audit_{_safe(audit.client.nom)}_{audit.date_audit}.pdf"
         return send_file(buf, mimetype="application/pdf",
                          as_attachment=True, download_name=filename)

@@ -13,8 +13,10 @@
         <span id="save_indicator" class="save-indicator">●</span>
       </div>
       <div class="export-buttons">
-        <a href="{{ url_for('export_pdf', audit_id=audit.id) }}"
-           class="btn btn-sm btn-export">📄 PDF</a>
+        <button type="button"
+                onclick="exportPdfWithSchema({{ audit.id }})"
+                class="btn btn-sm btn-export"
+                title="Export PDF avec page de topologie réseau">📄 PDF</button>
         <a href="{{ url_for('export_excel', audit_id=audit.id) }}"
            class="btn btn-sm btn-export">📊 Excel</a>
         <a href="{{ url_for('export_svg', audit_id=audit.id) }}"

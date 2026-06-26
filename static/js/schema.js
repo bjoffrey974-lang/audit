@@ -692,3 +692,73 @@ window.SchemaApp = (function () {
     getEquipements, getLiaisons,
   };
 })();
+
+// =====================================================================
+// Export PDF avec page schéma
+//
+// Cette fonction est appelée depuis le bouton "📄 PDF" de audit.html.
+// Elle :
+//   1. Récupère le SVG du schéma topologique depuis le DOM (#schema_svg)
+//   2. Le sérialise en string
+//   3. Envoie un POST à /audit/<id>/export/pdf avec le SVG dans le body
+//   4. Reçoit le PDF binaire en réponse et déclenche le téléchargement
+//
+// Si le SVG n'est pas trouvé (utilisateur pas sur l'onglet schéma), on tombe
+// en fallback GET (PDF sans page schéma).
+// =====================================================================
+window.exportPdfWithSchema = async function (auditId) {
+  const svgEl = document.getElementById("schema_svg");
+  let schemaSvg = null;
+  if (svgEl) {
+    try {
+      // Sérialise le SVG du DOM, y compris les namespaces
+      const serializer = new XMLSerializer();
+      schemaSvg = serializer.serializeToString(svgEl);
+      // S'assurer que xmlns est présent (sinon cairosvg refuse)
+      if (!schemaSvg.includes("xmlns=")) {
+        schemaSvg = schemaSvg.replace(
+          /<svg\b/,
+          '<svg xmlns="http://www.w3.org/2000/svg"'
+        );
+      }
+    } catch (e) {
+      console.warn("Sérialisation SVG échouée :", e);
+      schemaSvg = null;
+    }
+  }
+
+  // Si pas de SVG ou SVG vide, fallback GET (ancien comportement)
+  if (!schemaSvg || schemaSvg.length < 100) {
+    window.location.href = `/audit/${auditId}/export/pdf`;
+    return;
+  }
+
+  // POST avec le SVG, récupère le PDF binaire, déclenche le téléchargement
+  try {
+    const r = await fetch(`/audit/${auditId}/export/pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schema_svg: schemaSvg }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    // Extrait le nom de fichier depuis Content-Disposition si présent
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="?([^";]+)"?/);
+    const filename = m ? m[1] : `audit_${auditId}.pdf`;
+    // Crée un lien temporaire pour télécharger
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Échec export PDF :", err);
+    alert("Échec de l'export PDF : " + err.message
+      + "\n\nFallback : téléchargement sans schéma.");
+    window.location.href = `/audit/${auditId}/export/pdf`;
+  }
+};

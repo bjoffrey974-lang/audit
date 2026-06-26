@@ -209,23 +209,52 @@ def _xml_escape(s):
 # PDF (reportlab)
 # ============================================================================
 
-def generate_pdf(audit):
-    from reportlab.lib.pagesizes import A4
+def generate_pdf(audit, schema_svg=None):
+    """
+    Génère le PDF d'audit.
+
+    Args:
+        audit: l'objet Audit à exporter.
+        schema_svg: optionnel, la chaîne SVG du schéma topologique. Si fournie,
+                    une page dédiée est insérée APRÈS la page de garde, avec le
+                    schéma converti en image (via cairosvg). En cas d'erreur de
+                    conversion (cairosvg absent, SVG invalide), la page est
+                    simplement omise du PDF (pas d'exception).
+    """
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.lib import colors
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        PageBreak, KeepTogether,
+        PageBreak, KeepTogether, Image, NextPageTemplate,
+        BaseDocTemplate, PageTemplate, Frame,
     )
 
     buf = BytesIO()
-    doc = SimpleDocTemplate(
+    # On utilise BaseDocTemplate avec 2 PageTemplates pour pouvoir basculer
+    # entre portrait (par défaut) et paysage (pour la page schéma) via
+    # NextPageTemplate('landscape').
+    doc = BaseDocTemplate(
         buf, pagesize=A4,
         leftMargin=2*cm, rightMargin=2*cm,
         topMargin=2*cm, bottomMargin=2*cm,
         title=f"Audit IT - {audit.client.nom}",
     )
+    portrait_frame = Frame(
+        2*cm, 2*cm, A4[0] - 4*cm, A4[1] - 4*cm,
+        id="portrait_frame", showBoundary=0,
+    )
+    landscape_size = landscape(A4)  # (hauteur_A4, largeur_A4) = (29.7cm, 21cm)
+    landscape_frame = Frame(
+        1.5*cm, 1.5*cm, landscape_size[0] - 3*cm, landscape_size[1] - 3*cm,
+        id="landscape_frame", showBoundary=0,
+    )
+    doc.addPageTemplates([
+        PageTemplate(id="portrait", frames=[portrait_frame], pagesize=A4),
+        PageTemplate(id="landscape", frames=[landscape_frame],
+                     pagesize=landscape_size),
+    ])
 
     styles = getSampleStyleSheet()
     h1 = ParagraphStyle("H1", parent=styles["Heading1"],
@@ -257,7 +286,57 @@ def generate_pdf(audit):
         story.append(Paragraph(
             f"<b>Interlocuteur commercial :</b> {audit.interlocuteur_commercial}",
             normal))
-    story.append(PageBreak())
+
+    # --- Page dédiée au schéma topologique (si SVG fourni) ---
+    # Convertit le SVG fourni par le frontend en PNG via cairosvg, puis insère
+    # l'image sur une page A4 PAYSAGE pour profiter de la largeur. Si la
+    # conversion échoue (cairosvg absent, SVG invalide), la page est omise et
+    # l'export continue normalement, sans planter.
+    if schema_svg:
+        try:
+            import cairosvg
+            from io import BytesIO as _BytesIO
+            # cairosvg accepte directement une chaîne en bytestring
+            png_bytes = cairosvg.svg2png(
+                bytestring=schema_svg.encode("utf-8"),
+                output_width=2400,  # haute résolution pour PDF net
+            )
+            # Bascule en paysage pour la page suivante
+            story.append(NextPageTemplate("landscape"))
+            story.append(PageBreak())
+            # Titre de la page
+            schema_h1 = ParagraphStyle(
+                "schemaH1", parent=h1, fontSize=20, spaceAfter=18,
+                alignment=1,  # 1 = TA_CENTER
+            )
+            story.append(Paragraph("Topologie réseau", schema_h1))
+            # Insère l'image en l'adaptant à la largeur disponible
+            # Largeur cadre = A4 paysage (29.7cm) - marges (3cm) = 26.7cm
+            avail_w = landscape_size[0] - 3*cm
+            avail_h = landscape_size[1] - 3*cm - 2*cm  # - place du titre
+            img = Image(_BytesIO(png_bytes))
+            # Calcule le ratio pour adapter sans déformer
+            iw, ih = img.imageWidth, img.imageHeight
+            ratio = min(avail_w / iw, avail_h / ih)
+            img.drawWidth = iw * ratio
+            img.drawHeight = ih * ratio
+            img.hAlign = "CENTER"
+            story.append(img)
+            # Retour au portrait pour la suite
+            story.append(NextPageTemplate("portrait"))
+            story.append(PageBreak())
+        except ImportError:
+            # cairosvg non installé : on saute la page schéma silencieusement,
+            # le PDF reste valide.
+            story.append(PageBreak())
+        except Exception as e:
+            # SVG invalide ou autre erreur de conversion : log + skip
+            import sys
+            print(f"[generate_pdf] Échec conversion SVG → PNG : {e}",
+                  file=sys.stderr)
+            story.append(PageBreak())
+    else:
+        story.append(PageBreak())
 
     # ----- Contact -----
     story.append(Paragraph("1. Contact", h2))
