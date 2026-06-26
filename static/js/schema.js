@@ -711,9 +711,48 @@ window.exportPdfWithSchema = async function (auditId) {
   let schemaSvg = null;
   if (svgEl) {
     try {
-      // Sérialise le SVG du DOM, y compris les namespaces
-      const serializer = new XMLSerializer();
-      schemaSvg = serializer.serializeToString(svgEl);
+      // CRITIQUE : Avant de sérialiser, on recalcule la viewBox pour
+      // qu'elle englobe TOUS les éléments visibles. Le SVG du DOM a une
+      // viewBox fixe (0 0 1200 800) mais des éléments peuvent être en
+      // dehors (cloud Internet placé en y négatif, équipements au-delà
+      // de la limite droite...). Le navigateur les affiche quand même
+      // car overflow:visible, mais cairosvg respecte strictement la
+      // viewBox et coupe ce qui dépasse.
+      //
+      // On clone le SVG pour ne pas perturber l'affichage à l'écran,
+      // puis on utilise getBBox() pour mesurer la bounding box réelle.
+      const clone = svgEl.cloneNode(true);
+      // On a besoin que le clone soit dans le DOM pour getBBox() marche.
+      // On le met hors écran en absolute, invisible.
+      clone.style.position = "absolute";
+      clone.style.left = "-99999px";
+      clone.style.top = "0";
+      clone.style.visibility = "hidden";
+      document.body.appendChild(clone);
+      try {
+        // getBBox() ne fonctionne que sur les éléments rendus
+        const bbox = clone.getBBox();
+        if (bbox && bbox.width > 0 && bbox.height > 0) {
+          // Marge autour pour ne pas couper les bordures de boîte
+          const pad = 30;
+          const newX = bbox.x - pad;
+          const newY = bbox.y - pad;
+          const newW = bbox.width + pad * 2;
+          const newH = bbox.height + pad * 2;
+          clone.setAttribute("viewBox",
+            `${newX} ${newY} ${newW} ${newH}`);
+          // Ajuste aussi width/height attributes pour que cairosvg
+          // utilise les bonnes dimensions de rendu
+          clone.setAttribute("width", newW);
+          clone.setAttribute("height", newH);
+        }
+        // Sérialise le clone avec sa viewBox corrigée
+        const serializer = new XMLSerializer();
+        schemaSvg = serializer.serializeToString(clone);
+      } finally {
+        // Nettoyer le clone du DOM dans tous les cas
+        document.body.removeChild(clone);
+      }
       // S'assurer que xmlns est présent (sinon cairosvg refuse)
       if (!schemaSvg.includes("xmlns=")) {
         schemaSvg = schemaSvg.replace(
