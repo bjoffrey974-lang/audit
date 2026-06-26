@@ -719,40 +719,43 @@ window.exportPdfWithSchema = async function (auditId) {
       // car overflow:visible, mais cairosvg respecte strictement la
       // viewBox et coupe ce qui dépasse.
       //
-      // On clone le SVG pour ne pas perturber l'affichage à l'écran,
-      // puis on utilise getBBox() pour mesurer la bounding box réelle.
-      const clone = svgEl.cloneNode(true);
-      // On a besoin que le clone soit dans le DOM pour getBBox() marche.
-      // On le met hors écran en absolute, invisible.
-      clone.style.position = "absolute";
-      clone.style.left = "-99999px";
-      clone.style.top = "0";
-      clone.style.visibility = "hidden";
-      document.body.appendChild(clone);
+      // On appelle getBBox() sur le SVG ORIGINAL (qui est rendu à l'écran).
+      // Important : getBBox sur un clone hors écran ou en visibility:hidden
+      // renvoie 0,0,0,0 dans la plupart des navigateurs. Il faut un élément
+      // réellement rendu pour mesurer.
+      let computedViewBox = null;
       try {
-        // getBBox() ne fonctionne que sur les éléments rendus
-        const bbox = clone.getBBox();
+        const bbox = svgEl.getBBox();
         if (bbox && bbox.width > 0 && bbox.height > 0) {
-          // Marge autour pour ne pas couper les bordures de boîte
           const pad = 30;
-          const newX = bbox.x - pad;
-          const newY = bbox.y - pad;
-          const newW = bbox.width + pad * 2;
-          const newH = bbox.height + pad * 2;
-          clone.setAttribute("viewBox",
-            `${newX} ${newY} ${newW} ${newH}`);
-          // Ajuste aussi width/height attributes pour que cairosvg
-          // utilise les bonnes dimensions de rendu
-          clone.setAttribute("width", newW);
-          clone.setAttribute("height", newH);
+          computedViewBox = {
+            x: bbox.x - pad,
+            y: bbox.y - pad,
+            w: bbox.width + pad * 2,
+            h: bbox.height + pad * 2,
+          };
+        } else {
+          console.warn("getBBox a renvoyé une zone vide :",
+                       bbox && bbox.width, bbox && bbox.height);
         }
-        // Sérialise le clone avec sa viewBox corrigée
-        const serializer = new XMLSerializer();
-        schemaSvg = serializer.serializeToString(clone);
-      } finally {
-        // Nettoyer le clone du DOM dans tous les cas
-        document.body.removeChild(clone);
+      } catch (e) {
+        console.warn("getBBox a échoué :", e.message);
       }
+
+      // On clone le SVG pour ne pas perturber l'affichage à l'écran,
+      // et on applique la viewBox calculée au clone.
+      const clone = svgEl.cloneNode(true);
+      // Retirer les attributs de style hors écran s'il y en avait
+      clone.removeAttribute("style");
+      if (computedViewBox) {
+        clone.setAttribute("viewBox",
+          `${computedViewBox.x} ${computedViewBox.y} ${computedViewBox.w} ${computedViewBox.h}`);
+        clone.setAttribute("width", computedViewBox.w);
+        clone.setAttribute("height", computedViewBox.h);
+      }
+      // Sérialise le clone avec sa viewBox corrigée
+      const serializer = new XMLSerializer();
+      schemaSvg = serializer.serializeToString(clone);
       // S'assurer que xmlns est présent (sinon cairosvg refuse)
       if (!schemaSvg.includes("xmlns=")) {
         schemaSvg = schemaSvg.replace(
